@@ -4,7 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>发卡商城 · 管理后台</title>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://tbrndvwxwvtvyjpsqnuj.supabase.co; object-src 'none'; base-uri 'self'; form-action 'none'; upgrade-insecure-requests">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   :root { --primary:#635bff; --primary-dark:#5343d9; --bg:#f6f7fb; --side:#fff; --card:#fff; --text:#1a1f36; --text-sub:#6b7280; --border:#e8e9f2; --success:#16a34a; --danger:#ef4444; --warning:#d97706; }
@@ -72,6 +73,9 @@
   .empty { text-align: center; color: var(--text-sub); padding: 40px 0; font-size: 13px; }
   @media (max-width: 760px) { .layout { flex-direction: column; } .sidebar { width: 100%; height: auto; position: static; flex-direction: row; align-items: center; overflow-x: auto; padding: 10px; } .sidebar .brand { padding: 0 10px 0 4px; } .nav-item { white-space: nowrap; width: auto; } .sidebar .logout { margin: 0 0 0 auto; } .main { padding: 18px 14px; } }
 </style>
+<script src="assets/config.js"></script>
+<script src="vendor/supabase-2.116.0.min.js" integrity="sha384-JBR+x8blGwjDRO63aHCGiZMD4VNiTR4ZUGA+N6ZKLf3zNt1fK8IBpcgPaMrxqWBp" crossorigin="anonymous"></script>
+<script src="assets/admin.js" defer></script>
 </head>
 <body>
 
@@ -80,12 +84,12 @@
   <div class="login-card">
     <div class="login-icon">🛍️</div>
     <div class="logo">发卡商城管理后台</div>
-    <div class="sub">默认密码 admin123，登录后请及时修改</div>
-    <div class="form-item"><label>管理员密码</label><input type="password" id="loginPwd" placeholder="请输入管理员密码"></div>
-    <button class="btn btn-primary" style="width:100%;padding:12px;font-size:15px" onclick="doLogin()">登 录</button>
+    <div class="sub">使用 Supabase Auth 管理员账号登录</div>
+    <div class="form-item"><label>管理员邮箱</label><input type="email" id="loginEmail" placeholder="Supabase Auth 里的管理员邮箱" maxlength="254" autocomplete="username"></div>
+    <div class="form-item"><label>密码</label><input type="password" id="loginPwd" placeholder="请输入密码" autocomplete="current-password"></div>
+    <button type="button" class="btn btn-primary" id="loginBtn" style="width:100%;padding:12px;font-size:15px">登 录</button>
     <div style="margin-top:14px;text-align:center">
-      <button class="btn btn-ghost btn-sm" onclick="openApiSetting()">⚙️ 接口设置</button>
-      <button class="btn btn-ghost btn-sm" onclick="location.href='index.html'">← 返回商城</button>
+      <button type="button" class="btn btn-ghost btn-sm" data-action="shop">← 返回商城</button>
     </div>
   </div>
 </div>
@@ -95,12 +99,12 @@
   <div class="layout">
     <aside class="sidebar">
       <div class="brand">🛍️ 发卡后台</div>
-      <button class="nav-item active" data-view="dashboard" onclick="switchView('dashboard')">📊 仪表盘</button>
-      <button class="nav-item" data-view="goods" onclick="switchView('goods')">📦 商品管理</button>
-      <button class="nav-item" data-view="cards" onclick="switchView('cards')">🎫 卡密管理</button>
-      <button class="nav-item" data-view="orders" onclick="switchView('orders')">🧾 订单管理</button>
-      <button class="nav-item" data-view="settings" onclick="switchView('settings')">⚙️ 系统设置</button>
-      <button class="nav-item logout" onclick="logout()">🚪 退出登录</button>
+      <button class="nav-item active" data-view="dashboard">📊 仪表盘</button>
+      <button class="nav-item" data-view="goods">📦 商品管理</button>
+      <button class="nav-item" data-view="cards">🎫 卡密管理</button>
+      <button class="nav-item" data-view="orders">🧾 订单管理</button>
+      <button class="nav-item" data-view="settings">⚙️ 系统设置</button>
+      <button type="button" class="nav-item logout" data-action="logout">🚪 退出登录</button>
     </aside>
     <main class="main">
       <section id="view-dashboard" class="view">
@@ -125,7 +129,7 @@
       <section id="view-goods" class="view" style="display:none">
         <div class="page-title">商品管理</div>
         <div class="panel">
-          <div class="panel-head"><h4>商品列表</h4><button class="btn btn-primary" onclick="openGoodsModal()">＋ 添加商品</button></div>
+          <div class="panel-head"><h4>商品列表</h4><button type="button" class="btn btn-primary" data-action="add-goods">＋ 添加商品</button></div>
           <div style="overflow-x:auto"><table id="goodsTable">
             <thead><tr><th>商品</th><th>分类</th><th>价格</th><th>库存</th><th>已售</th><th>状态</th><th>操作</th></tr></thead>
             <tbody></tbody>
@@ -142,14 +146,14 @@
             <div class="form-item" style="flex:0 0 240px"><label>选择商品</label><select id="importGoodsSelect"></select></div>
             <div class="form-item" style="flex:1"><label>卡密内容（每行一个，最多 500 条）</label><textarea id="importCards" placeholder="例如：&#10;ABCD-1234-EFGH-5678&#10;IJKL-9012-MNOP-3456"></textarea></div>
           </div>
-          <button class="btn btn-primary" onclick="importCards()">导入选中商品的卡密</button>
+          <button type="button" class="btn btn-primary" data-action="import-cards">导入选中商品的卡密</button>
         </div>
         <div class="panel">
           <div class="panel-head"><h4>卡密列表</h4></div>
           <div class="form-row" style="margin-bottom:14px">
-            <div class="form-item"><label>商品筛选</label><select id="filterGoodsSelect" onchange="loadCards()"></select></div>
+            <div class="form-item"><label>商品筛选</label><select id="filterGoodsSelect"></select></div>
             <div class="form-item"><label>状态筛选</label>
-              <select id="filterStatus" onchange="loadCards()">
+              <select id="filterStatus">
                 <option value="">全部状态</option><option value="0">未售出</option><option value="1">锁定中</option><option value="2">已售出</option>
               </select>
             </div>
@@ -166,7 +170,7 @@
         <div class="page-title">订单管理</div>
         <div class="panel">
           <div class="panel-head"><h4>订单列表</h4>
-            <select id="orderStatusFilter" style="padding:8px 10px;border:1.5px solid var(--border);border-radius:9px;font-family:inherit" onchange="loadOrders()">
+            <select id="orderStatusFilter" style="padding:8px 10px;border:1.5px solid var(--border);border-radius:9px;font-family:inherit">
               <option value="">全部状态</option><option value="pending">待支付</option><option value="paid">已支付</option>
             </select>
           </div>
@@ -185,15 +189,11 @@
           <div class="form-item"><label>站点名称</label><input type="text" id="setSiteName" maxlength="20"></div>
           <div class="form-item"><label>公告内容</label><textarea id="setAnnouncement" maxlength="200" style="min-height:80px"></textarea></div>
           <div class="form-item"><label>联系方式（选填）</label><input type="text" id="setContact" maxlength="100"></div>
-          <button class="btn btn-primary" onclick="saveSite()">保存站点信息</button>
+          <button type="button" class="btn btn-primary" data-action="save-site">保存站点信息</button>
         </div>
-        <div class="panel">
-          <div class="panel-head"><h4>修改管理员密码</h4></div>
-          <div class="form-row">
-            <div class="form-item"><label>原密码</label><input type="password" id="oldPwd"></div>
-            <div class="form-item"><label>新密码（至少 6 位）</label><input type="password" id="newPwd"></div>
-          </div>
-          <button class="btn btn-primary" onclick="changePwd()">修改密码</button>
+        <div class="panel"><div class="panel-head"><h4>管理员账号</h4></div>
+          <div class="hint">后台账号已改由 Supabase Auth 管理。修改密码或新增管理员请前往 Supabase 控制台 → Authentication → Users；
+          新增的 uid 需同时写入 admin_users 表，否则该账号无法进入后台。</div>
         </div>
       </section>
     </main>
@@ -203,7 +203,7 @@
 <!-- 商品编辑弹窗 -->
 <div class="modal-mask" id="goodsModal">
   <div class="modal">
-    <h3 id="goodsModalTitle">添加商品<button class="close" onclick="hideModal('goodsModal')">✕</button></h3>
+    <h3 id="goodsModalTitle">添加商品<button type="button" class="close" data-close="goodsModal">✕</button></h3>
     <input type="hidden" id="goodsId">
     <div class="form-row">
       <div class="form-item"><label>商品名称 *</label><input type="text" id="gName" maxlength="40" placeholder="例如：XX会员月卡"></div>
@@ -216,8 +216,8 @@
     <div class="form-item"><label>商品介绍（选填）</label><textarea id="gDesc" maxlength="200" style="min-height:70px" placeholder="展示在商品卡片上"></textarea></div>
     <div class="form-item"><label>上架状态</label><select id="gStatus"><option value="1">上架（买家可见）</option><option value="0">下架（买家不可见）</option></select></div>
     <div class="modal-actions">
-      <button class="btn btn-ghost" onclick="hideModal('goodsModal')">取消</button>
-      <button class="btn btn-primary" id="saveGoodsBtn" onclick="saveGoods()">保存商品</button>
+      <button class="btn btn-ghost">取消</button>
+      <button type="button" class="btn btn-primary" id="saveGoodsBtn" data-action="save-goods">保存商品</button>
     </div>
   </div>
 </div>
@@ -225,339 +225,13 @@
 <!-- 订单详情弹窗 -->
 <div class="modal-mask" id="orderModal">
   <div class="modal">
-    <h3>订单详情<button class="close" onclick="hideModal('orderModal')">✕</button></h3>
+    <h3>订单详情<button type="button" class="close" data-close="orderModal">✕</button></h3>
     <div id="orderDetail"></div>
   </div>
 </div>
 
-<!-- API 设置弹窗 -->
-<div class="modal-mask" id="apiModal">
-  <div class="modal">
-    <h3>Supabase 接口设置<button class="close" onclick="hideModal('apiModal')">✕</button></h3>
-    <div class="form-item"><label>Project URL</label><input type="text" id="apiUrl" placeholder="https://xxxxx.supabase.co"></div>
-    <div class="form-item"><label>anon public key</label><input type="text" id="apiKey" placeholder="eyJhbGciOi..."></div>
-    <div class="hint" style="margin-bottom:14px">在 Supabase → Project Settings → API 页面可复制。</div>
-    <button class="btn btn-primary" style="width:100%;padding:12px" onclick="saveApi()">保存并刷新</button>
-  </div>
-</div>
 
 <div id="toast"></div>
 
-<script>
-let SUPA_URL = localStorage.getItem('FAKA_SUPA_URL') || 'https://tbrndvwxwvtvyjpsqnuj.supabase.co';
-let SUPA_KEY = localStorage.getItem('FAKA_SUPA_KEY') || 'sb_publishable_KKpYWmXKbGED-gL85Q4Rpw_RMzcXipK';
-let supa = null;
-let TOKEN = sessionStorage.getItem('FAKA_TOKEN') || '';
-let goodsCache = [];
-
-function initSupa() { if (!SUPA_URL || !SUPA_KEY) return false; supa = window.supabase.createClient(SUPA_URL, SUPA_KEY); return true; }
-function money(fen) { return (fen/100).toFixed(2); }
-function fmtTime(ts) { if(!ts) return '-'; const d=new Date(ts); const p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; }
-function escapeHtml(s) { return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
-function toast(msg) { const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._timer); t._timer=setTimeout(()=>t.classList.remove('show'), 2200); }
-function hideModal(id) { document.getElementById(id).classList.remove('show'); }
-
-function openApiSetting() { document.getElementById('apiUrl').value=SUPA_URL; document.getElementById('apiKey').value=SUPA_KEY; document.getElementById('apiModal').classList.add('show'); }
-function saveApi() {
-  const url=document.getElementById('apiUrl').value.trim();
-  const key=document.getElementById('apiKey').value.trim();
-  if (!url||!key){toast('请填写完整');return;}
-  SUPA_URL=url;SUPA_KEY=key;
-  localStorage.setItem('FAKA_SUPA_URL',url);
-  localStorage.setItem('FAKA_SUPA_KEY',key);
-  hideModal('apiModal'); location.reload();
-}
-
-/* ========== 登录 ========== */
-async function doLogin() {
-  const pwd = document.getElementById('loginPwd').value;
-  if (!pwd) { toast('请输入密码'); return; }
-  try {
-    const { data } = await supa.from('settings').select('data').eq('id','admin').maybeSingle();
-    const admin = (data && data.data) || {};
-    if (pwd !== admin.passwordHash) { toast('密码错误'); return; }
-    TOKEN = 'local_' + Math.random().toString(36).slice(2);
-    sessionStorage.setItem('FAKA_TOKEN', TOKEN);
-    enterApp();
-  } catch (e) { toast(e.message); }
-}
-function logout() { sessionStorage.removeItem('FAKA_TOKEN'); TOKEN=''; location.reload(); }
-function enterApp() {
-  document.getElementById('loginView').style.display='none';
-  document.getElementById('appView').style.display='block';
-  loadDashboard(); loadGoodsAdmin(); refreshGoodsSelects(); loadCards(); loadOrders(); loadSiteSettings();
-}
-
-function switchView(name) {
-  document.querySelectorAll('.view').forEach(v=>v.style.display='none');
-  document.getElementById('view-'+name).style.display='block';
-  document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('active', n.dataset.view===name));
-  if (name==='dashboard') loadDashboard();
-  if (name==='goods') loadGoodsAdmin();
-  if (name==='cards') { refreshGoodsSelects(); loadCards(); }
-  if (name==='orders') loadOrders();
-}
-
-function statusTag(s) {
-  if (s==='paid') return '<span class="tag tag-green">已支付</span>';
-  if (s==='pending') return '<span class="tag tag-orange">待支付</span>';
-  return '<span class="tag tag-gray">已关闭</span>';
-}
-function cardStatusTag(s) {
-  if (s===2) return '<span class="tag tag-green">已售出</span>';
-  if (s===1) return '<span class="tag tag-orange">锁定中</span>';
-  return '<span class="tag tag-gray">未售出</span>';
-}
-
-async function loadDashboard() {
-  try {
-    const { data: orders } = await supa.from('orders').select('*').order('created_at', { ascending: false }).limit(1000);
-    const todayStart = new Date(); todayStart.setHours(0,0,0,0);
-    let totalAmount=0, todayAmount=0, todayCount=0;
-    for (const o of (orders||[])) {
-      if (o.status==='paid') totalAmount += (o.amount||0);
-      if (o.status==='paid' && o.paid_at>=todayStart.getTime()) { todayAmount+=(o.amount||0); todayCount++; }
-    }
-    const { count: goodsCount } = await supa.from('goods').select('id', { count:'exact', head:true }).eq('status',1);
-    const { count: stockCount } = await supa.from('cards').select('id', { count:'exact', head:true }).eq('status',0);
-    document.getElementById('stTodayAmount').textContent='¥'+money(todayAmount);
-    document.getElementById('stTodayOrders').textContent=todayCount;
-    document.getElementById('stGoods').textContent=goodsCount||0;
-    document.getElementById('stStock').textContent=stockCount||0;
-    document.getElementById('stTotalAmount').textContent='¥'+money(totalAmount);
-    const recent = (orders||[]).slice(0,5);
-    const tbody = document.querySelector('#recentTable tbody');
-    document.getElementById('recentEmpty').style.display = recent.length?'none':'block';
-    tbody.innerHTML = recent.map(o => `
-      <tr>
-        <td class="td-wrap">${escapeHtml(o.order_id)}</td>
-        <td class="td-wrap">${escapeHtml(o.goods_name)}</td>
-        <td>${o.qty}</td>
-        <td>¥${money(o.amount)}</td>
-        <td>${statusTag(o.status)}</td>
-        <td style="white-space:nowrap">${fmtTime(o.created_at)}</td>
-      </tr>`).join('');
-  } catch (e) { toast(e.message); }
-}
-
-async function loadGoodsAdmin() {
-  try {
-    const { data } = await supa.from('goods').select('*').order('created_at', { ascending: false }).limit(100);
-    goodsCache = data || [];
-    const tbody = document.querySelector('#goodsTable tbody');
-    document.getElementById('goodsEmpty').style.display = goodsCache.length?'none':'block';
-    // 并发查库存
-    const stocks = await Promise.all(goodsCache.map(async g => {
-      const { count } = await supa.from('cards').select('id', { count:'exact', head:true }).eq('goods_id', g.id).eq('status',0);
-      return count || 0;
-    }));
-    tbody.innerHTML = goodsCache.map((g,i) => {
-      const stock = stocks[i];
-      return `
-      <tr>
-        <td><b>${escapeHtml(g.cover||'🎁')}</b> ${escapeHtml(g.name)}</td>
-        <td>${escapeHtml(g.category||'-')}</td>
-        <td style="color:#f5572b;font-weight:600">¥${money(g.price)}</td>
-        <td>${stock}</td>
-        <td>${g.sales||0}</td>
-        <td>${g.status===1?'<span class="tag tag-green">上架中</span>':'<span class="tag tag-gray">已下架</span>'}</td>
-        <td style="white-space:nowrap">
-          <button class="btn btn-ghost btn-sm" onclick="openGoodsModal(${g.id})">编辑</button>
-          <button class="btn btn-danger btn-sm" onclick="deleteGoods(${g.id}, '${escapeHtml(g.name)}')">删除</button>
-        </td>
-      </tr>`;
-    }).join('');
-  } catch (e) { toast(e.message); }
-}
-
-function openGoodsModal(id) {
-  const g = id ? goodsCache.find(x=>x.id===id) : null;
-  document.getElementById('goodsModalTitle').innerHTML = (g?'编辑商品':'添加商品')+'<button class="close" onclick="hideModal(\'goodsModal\')">✕</button>';
-  document.getElementById('goodsId').value = g ? g.id : '';
-  document.getElementById('gName').value = g ? g.name : '';
-  document.getElementById('gCover').value = g ? g.cover : '🎁';
-  document.getElementById('gPrice').value = g ? money(g.price) : '';
-  document.getElementById('gCategory').value = g ? g.category : '';
-  document.getElementById('gDesc').value = g ? g.description : '';
-  document.getElementById('gStatus').value = g ? String(g.status) : '1';
-  document.getElementById('goodsModal').classList.add('show');
-}
-
-async function saveGoods() {
-  const id = document.getElementById('goodsId').value;
-  const name = document.getElementById('gName').value.trim();
-  const price = parseFloat(document.getElementById('gPrice').value);
-  if (!name) { toast('请填写商品名称'); return; }
-  if (!price || price<=0) { toast('请填写正确的价格'); return; }
-  const payload = {
-    name, cover: document.getElementById('gCover').value || '🎁',
-    price: Math.round(price*100),
-    category: document.getElementById('gCategory').value.trim(),
-    description: document.getElementById('gDesc').value.trim(),
-    status: parseInt(document.getElementById('gStatus').value, 10)
-  };
-  const btn = document.getElementById('saveGoodsBtn');
-  btn.disabled = true;
-  try {
-    if (id) {
-      const old = goodsCache.find(x=>x.id===parseInt(id));
-      payload.sales = (old && old.sales) || 0;
-      await supa.from('goods').update(payload).eq('id', id);
-    } else {
-      payload.sales = 0;
-      payload.created_at = Date.now();
-      await supa.from('goods').insert(payload);
-    }
-    toast('保存成功'); hideModal('goodsModal'); loadGoodsAdmin(); refreshGoodsSelects();
-  } catch (e) { toast(e.message); }
-  finally { btn.disabled = false; }
-}
-
-async function deleteGoods(id, name) {
-  if (!confirm(`确定删除商品「${name}」吗？\n该商品的未售出卡密也会一并删除。`)) return;
-  try {
-    await supa.from('cards').delete().eq('goods_id', id).eq('status', 0);
-    await supa.from('goods').delete().eq('id', id);
-    toast('已删除'); loadGoodsAdmin(); refreshGoodsSelects(); loadCards();
-  } catch (e) { toast(e.message); }
-}
-
-async function refreshGoodsSelects() {
-  if (!goodsCache.length) {
-    try { const { data } = await supa.from('goods').select('id,name').order('created_at', { ascending: false }).limit(100); goodsCache = data || []; } catch (e) {}
-  }
-  const opts = '<option value="">全部商品</option>' + goodsCache.map(g=>`<option value="${g.id}">${escapeHtml(g.name)}</option>`).join('');
-  document.getElementById('filterGoodsSelect').innerHTML = opts;
-  document.getElementById('importGoodsSelect').innerHTML = goodsCache.length ? goodsCache.map(g=>`<option value="${g.id}">${escapeHtml(g.name)}</option>`).join('') : '<option value="">请先添加商品</option>';
-}
-
-async function importCards() {
-  const goodsId = document.getElementById('importGoodsSelect').value;
-  const contents = document.getElementById('importCards').value;
-  if (!goodsId) { toast('请先选择商品'); return; }
-  if (!contents.trim()) { toast('请粘贴卡密'); return; }
-  const lines = contents.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
-  if (lines.length > 500) { toast('单次最多 500 条'); return; }
-  // 批量插入（每批 100 条）
-  let added = 0;
-  for (let i = 0; i < lines.length; i += 100) {
-    const batch = lines.slice(i, i+100).map(line => ({ goods_id: parseInt(goodsId), content: line, status: 0, order_id: '', sold_at: 0, created_at: Date.now() }));
-    const { error } = await supa.from('cards').insert(batch);
-    if (!error) added += batch.length;
-  }
-  toast(`成功导入 ${added} 条卡密`);
-  document.getElementById('importCards').value = '';
-  loadGoodsAdmin(); refreshGoodsSelects(); loadCards();
-}
-
-async function loadCards() {
-  const goodsId = document.getElementById('filterGoodsSelect').value;
-  const status = document.getElementById('filterStatus').value;
-  let q = supa.from('cards').select('*').order('created_at', { ascending: false }).limit(200);
-  if (goodsId) q = q.eq('goods_id', goodsId);
-  if (status !== '') q = q.eq('status', parseInt(status, 10));
-  const { data } = await q;
-  const goodsMap = {}; goodsCache.forEach(g => goodsMap[g.id] = g.name);
-  const tbody = document.querySelector('#cardsTable tbody');
-  document.getElementById('cardsEmpty').style.display = (data||[]).length?'none':'block';
-  tbody.innerHTML = (data||[]).map(c => `
-    <tr>
-      <td class="td-wrap"><code>${escapeHtml(c.content)}</code></td>
-      <td class="td-wrap">${escapeHtml(goodsMap[c.goods_id]||'-')}</td>
-      <td>${cardStatusTag(c.status)}</td>
-      <td style="white-space:nowrap">${fmtTime(c.created_at)}</td>
-      <td>${c.status===0?`<button class="btn btn-danger btn-sm" onclick="deleteCard(${c.id})">删除</button>`:''}</td>
-    </tr>`).join('');
-}
-
-async function deleteCard(id) {
-  if (!confirm('确定删除这条卡密吗？')) return;
-  try { await supa.from('cards').delete().eq('id', id); toast('已删除'); loadCards(); }
-  catch (e) { toast(e.message); }
-}
-
-async function loadOrders() {
-  const status = document.getElementById('orderStatusFilter').value;
-  let q = supa.from('orders').select('*').order('created_at', { ascending: false }).limit(200);
-  if (status) q = q.eq('status', status);
-  const { data } = await q;
-  const tbody = document.querySelector('#ordersTable tbody');
-  document.getElementById('ordersEmpty').style.display = (data||[]).length?'none':'block';
-  tbody.innerHTML = (data||[]).map(o => `
-    <tr>
-      <td class="td-wrap">${escapeHtml(o.order_id)}</td>
-      <td class="td-wrap">${escapeHtml(o.goods_name)}</td>
-      <td>${o.qty}</td>
-      <td>¥${money(o.amount)}</td>
-      <td class="td-wrap">${escapeHtml(o.email)}</td>
-      <td>${statusTag(o.status)}</td>
-      <td style="white-space:nowrap">${fmtTime(o.created_at)}</td>
-      <td><button class="btn btn-ghost btn-sm" onclick="viewOrder(${o.id})">详情</button></td>
-    </tr>`).join('');
-}
-
-async function viewOrder(id) {
-  const { data: order } = await supa.from('orders').select('*').eq('id', id).maybeSingle();
-  if (!order) { toast('订单不存在'); return; }
-  document.getElementById('orderDetail').innerHTML = `
-    <div class="pay-info" style="background:var(--bg);border-radius:12px;padding:14px;margin-bottom:14px">
-      <div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0"><span>订单号</span><b>${escapeHtml(order.order_id)}</b></div>
-      <div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0"><span>商品</span><b>${escapeHtml(order.goods_name)} × ${order.qty}</b></div>
-      <div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0"><span>金额</span><b>¥${money(order.amount)}</b></div>
-      <div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0"><span>邮箱</span><b>${escapeHtml(order.email)}</b></div>
-      <div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0"><span>状态</span><b>${statusTag(order.status)}</b></div>
-      <div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0"><span>下单时间</span><b>${fmtTime(order.created_at)}</b></div>
-    </div>
-    ${order.cards && order.cards.length ? '<div class="hint" style="margin-bottom:8px">发货卡密：</div>' +
-      order.cards.map(c => `<div style="border:1.5px dashed #c9c6f5;border-radius:10px;padding:9px 12px;margin-bottom:8px;background:#fafaff"><code style="font-family:Consolas,monospace;font-size:13px;word-break:break-all">${escapeHtml(c)}</code></div>`).join('')
-      : '<div class="hint">该订单尚未支付，暂无卡密</div>'}`;
-  document.getElementById('orderModal').classList.add('show');
-}
-
-async function loadSiteSettings() {
-  try {
-    const { data } = await supa.from('settings').select('data').eq('id','site').maybeSingle();
-    const s = (data && data.data) || {};
-    document.getElementById('setSiteName').value = s.siteName || '';
-    document.getElementById('setAnnouncement').value = s.announcement || '';
-    document.getElementById('setContact').value = s.contact || '';
-  } catch (e) {}
-}
-
-async function saveSite() {
-  const payload = {
-    siteName: document.getElementById('setSiteName').value || '发卡商城',
-    announcement: document.getElementById('setAnnouncement').value,
-    contact: document.getElementById('setContact').value
-  };
-  try {
-    await supa.from('settings').update({ data: payload }).eq('id', 'site');
-    toast('保存成功，买家商城刷新后生效');
-  } catch (e) { toast(e.message); }
-}
-
-async function changePwd() {
-  const oldPwd = document.getElementById('oldPwd').value;
-  const newPwd = document.getElementById('newPwd').value;
-  if (!oldPwd || !newPwd) { toast('请填写完整'); return; }
-  if (newPwd.length < 6) { toast('新密码至少 6 位'); return; }
-  try {
-    const { data } = await supa.from('settings').select('data').eq('id','admin').maybeSingle();
-    const admin = (data && data.data) || {};
-    if (oldPwd !== admin.passwordHash) { toast('原密码错误'); return; }
-    admin.passwordHash = newPwd;
-    await supa.from('settings').update({ data: admin }).eq('id', 'admin');
-    toast('密码修改成功');
-    document.getElementById('oldPwd').value=''; document.getElementById('newPwd').value='';
-  } catch (e) { toast(e.message); }
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-  if (!initSupa()) { openApiSetting(); return; }
-  if (TOKEN) enterApp();
-  document.getElementById('loginPwd').addEventListener('keydown', e => { if (e.key==='Enter') doLogin(); });
-});
-document.querySelectorAll('.modal-mask').forEach(m => m.addEventListener('click', e => { if (e.target===m) m.classList.remove('show'); }));
-</script>
 </body>
 </html>

@@ -3,8 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- CSP：脚本只允许同源，内联脚本与第三方 CDN 一律拒绝（style-src 的 unsafe-inline 仅用于下面的页面样式） -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://tbrndvwxwvtvyjpsqnuj.supabase.co; object-src 'none'; base-uri 'self'; form-action 'none'; upgrade-insecure-requests">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <title>发卡商城 - 自动发卡，秒到账</title>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   :root { --primary:#635bff; --primary-dark:#5343d9; --bg:#f6f7fb; --card:#fff; --text:#1a1f36; --text-sub:#6b7280; --border:#e8e9f2; --success:#16a34a; --danger:#ef4444; }
@@ -77,7 +79,12 @@
   #toast { position: fixed; top: 80px; left: 50%; transform: translateX(-50%) translateY(-16px); background: #1a1f36; color: #fff; padding: 10px 22px; border-radius: 10px; font-size: 14px; opacity: 0; pointer-events: none; transition: all .3s; z-index: 999; }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
   @media (max-width: 560px) { .grid { grid-template-columns: repeat(2, 1fr); gap: 12px; } .goods-card { padding: 14px; } .goods-cover { height: 64px; font-size: 34px; } }
+  .hint-line { font-size:13px; color:var(--text-sub); text-align:center; padding:10px 0; line-height:1.6; }
+  .pay-info b { word-break:break-all; }
 </style>
+<script src="assets/config.js"></script>
+<script src="vendor/supabase-2.116.0.min.js" integrity="sha384-JBR+x8blGwjDRO63aHCGiZMD4VNiTR4ZUGA+N6ZKLf3zNt1fK8IBpcgPaMrxqWBp" crossorigin="anonymous"></script>
+<script src="assets/shop.js" defer></script>
 </head>
 <body>
 
@@ -85,9 +92,8 @@
   <div class="container header-inner">
     <div class="logo"><span class="logo-icon">🛍️</span><span id="siteName">发卡商城</span></div>
     <div class="header-actions">
-      <button class="btn btn-ghost" onclick="openQuery()">订单查询</button>
-      <button class="btn btn-ghost" onclick="location.href='admin.html'">管理后台</button>
-      <button class="btn btn-ghost" onclick="openApiSetting()" title="接口设置">⚙️</button>
+      <button type="button" class="btn btn-ghost" data-act="open-query">订单查询</button>
+      <button type="button" class="btn btn-ghost" data-act="goto-admin">管理后台</button>
     </div>
   </div>
 </header>
@@ -95,327 +101,69 @@
 <div class="container">
   <div class="announcement"><span>📢</span><span id="announcement">正在加载...</span></div>
   <div class="grid" id="goodsGrid"></div>
-  <div class="empty" id="emptyTip" style="display:none">暂无在售商品，请到管理后台添加～</div>
 </div>
 
-<footer>本站商品均为虚拟商品，一经售出概不退换 · Supabase 在线版</footer>
+<footer>本站商品均为虚拟商品，一经售出概不退换</footer>
 
 <!-- 购买弹窗 -->
 <div class="modal-mask" id="buyModal">
   <div class="modal">
-    <h3>确认购买<button class="close" onclick="closeModal('buyModal')">✕</button></h3>
+    <h3>确认购买<button type="button" class="close" data-close="buyModal">✕</button></h3>
     <div class="order-summary" id="buySummary"></div>
     <div class="form-item">
       <label>购买数量（剩余库存 <span id="buyStock">-</span> 张）</label>
       <div class="qty-row">
-        <button class="qty-btn" onclick="changeQty(-1)">−</button>
+        <button type="button" class="qty-btn" id="qtyMinus">−</button>
         <span class="qty-num" id="qtyNum">1</span>
-        <button class="qty-btn" onclick="changeQty(1)">＋</button>
+        <button type="button" class="qty-btn" id="qtyPlus">＋</button>
       </div>
     </div>
-    <div class="form-item"><label>接收邮箱（用于查询订单）</label><input type="email" id="buyEmail" placeholder="例如：you@example.com"></div>
+    <div class="form-item"><label>接收邮箱（用于查询订单，请填写你本人的邮箱）</label><input type="email" id="buyEmail" placeholder="例如：you@example.com" maxlength="254" autocomplete="email"></div>
     <div class="total-row"><span class="label">合计</span><span class="amount">¥ <span id="totalPrice">0.00</span></span></div>
-    <button class="btn btn-primary btn-block" id="submitOrderBtn" onclick="submitOrder()">立即下单</button>
+    <button type="button" class="btn btn-primary btn-block" id="submitOrderBtn">立即下单</button>
   </div>
 </div>
 
-<!-- 支付弹窗 -->
+<!-- 支付弹窗：本页不具备"支付成功"的判定能力，只能等数据库确认 -->
 <div class="modal-mask" id="payModal">
   <div class="modal">
-    <h3>订单支付<button class="close" onclick="closeModal('payModal')">✕</button></h3>
+    <h3>订单支付<button type="button" class="close" data-close="payModal">✕</button></h3>
     <div class="pay-amount"><small>¥</small> <span class="num" id="payAmount">0.00</span></div>
     <div class="pay-info">
       <div class="row"><span>订单编号</span><b id="payOrderId">-</b></div>
       <div class="row"><span>商品名称</span><b id="payGoodsName">-</b></div>
       <div class="row"><span>数量</span><b id="payQty">-</b></div>
     </div>
-    <div class="demo-tip">⚠️ 演示模式：点击下方按钮即可模拟支付成功</div>
-    <button class="btn btn-primary btn-block" id="payBtn" onclick="simulatePay()">确认支付（演示）</button>
+    <div class="demo-tip" id="payStatus">等待支付结果…</div>
+    <button type="button" class="btn btn-primary btn-block" id="payRefreshBtn">我已完成支付，刷新状态</button>
   </div>
 </div>
 
 <!-- 结果弹窗 -->
 <div class="modal-mask" id="resultModal">
   <div class="modal">
-    <h3>购买成功<button class="close" onclick="closeModal('resultModal')">✕</button></h3>
+    <h3>购买成功<button type="button" class="close" data-close="resultModal">✕</button></h3>
     <div class="result-head">
       <div class="ok-icon">✓</div>
       <div style="font-size:15px;font-weight:600">卡密已自动发货，请及时复制保存</div>
       <div style="font-size:12px;color:var(--text-sub);margin-top:5px">订单号：<span id="resultOrderId"></span></div>
     </div>
     <div id="cardList"></div>
-    <button class="btn btn-primary btn-block" style="margin-top:8px" onclick="copyAll()">一键复制全部卡密</button>
+    <button type="button" class="btn btn-primary btn-block" style="margin-top:8px" id="copyAllBtn">一键复制全部卡密</button>
   </div>
 </div>
 
 <!-- 订单查询弹窗 -->
 <div class="modal-mask" id="queryModal">
   <div class="modal">
-    <h3>订单查询<button class="close" onclick="closeModal('queryModal')">✕</button></h3>
-    <div class="form-item"><label>订单编号</label><input type="text" id="queryOrderId" placeholder="下单时生成的订单编号"></div>
-    <div class="form-item"><label>下单邮箱</label><input type="email" id="queryEmail" placeholder="下单时填写的邮箱"></div>
-    <button class="btn btn-primary btn-block" onclick="doQuery()">查询订单</button>
+    <h3>订单查询<button type="button" class="close" data-close="queryModal">✕</button></h3>
+    <div class="form-item"><label>订单编号</label><input type="text" id="queryOrderId" placeholder="下单时生成的订单编号" maxlength="40" autocomplete="off"></div>
+    <div class="form-item"><label>下单邮箱</label><input type="email" id="queryEmail" placeholder="下单时填写的邮箱" maxlength="254" autocomplete="email"></div>
+    <button type="button" class="btn btn-primary btn-block" id="doQueryBtn">查询订单</button>
     <div id="queryResult" style="margin-top:16px"></div>
   </div>
 </div>
 
-<!-- 接口设置弹窗 -->
-<div class="modal-mask" id="apiModal">
-  <div class="modal">
-    <h3>Supabase 接口设置<button class="close" onclick="closeModal('apiModal')">✕</button></h3>
-    <div class="form-item"><label>Project URL（在 Supabase → Settings → API 里复制）</label><input type="text" id="apiUrl" placeholder="https://xxxxx.supabase.co"></div>
-    <div class="form-item"><label>anon public key（同页面，复制 anon public）</label><input type="text" id="apiKey" placeholder="eyJhbGciOi..."></div>
-    <div style="font-size:12px;color:var(--text-sub);line-height:1.7;margin-bottom:14px">填一次保存在本浏览器，更换电脑需要重填。</div>
-    <button class="btn btn-primary btn-block" onclick="saveApi()">保存并刷新</button>
-  </div>
-</div>
-
 <div id="toast"></div>
-
-<script>
-/* ========== Supabase 配置 ========== */
-let SUPA_URL = localStorage.getItem('FAKA_SUPA_URL') || 'https://tbrndvwxwvtvyjpsqnuj.supabase.co';
-let SUPA_KEY = localStorage.getItem('FAKA_SUPA_KEY') || 'sb_publishable_KKpYWmXKbGED-gL85Q4Rpw_RMzcXipK';
-let supa = null;
-
-function initSupa() {
-  if (!SUPA_URL || !SUPA_KEY) return false;
-  supa = window.supabase.createClient(SUPA_URL, SUPA_KEY);
-  return true;
-}
-
-let goodsList = [];
-let currentGoods = null, currentQty = 1, currentOrder = null, currentCards = [];
-
-function money(fen) { return (fen/100).toFixed(2); }
-function toast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(t._timer); t._timer = setTimeout(()=>t.classList.remove('show'), 2200); }
-function closeModal(id) { document.getElementById(id).classList.remove('show'); }
-function escapeHtml(s) { return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
-
-/* ========== API 设置 ========== */
-function openApiSetting() {
-  document.getElementById('apiUrl').value = SUPA_URL;
-  document.getElementById('apiKey').value = SUPA_KEY;
-  document.getElementById('apiModal').classList.add('show');
-}
-function saveApi() {
-  const url = document.getElementById('apiUrl').value.trim();
-  const key = document.getElementById('apiKey').value.trim();
-  if (!url || !key) { toast('请填写完整'); return; }
-  SUPA_URL = url; SUPA_KEY = key;
-  localStorage.setItem('FAKA_SUPA_URL', url);
-  localStorage.setItem('FAKA_SUPA_KEY', key);
-  closeModal('apiModal'); location.reload();
-}
-
-/* ========== 站点加载 ========== */
-async function loadSite() {
-  try {
-    const { data } = await supa.from('settings').select('data').eq('id', 'site').maybeSingle();
-    const s = (data && data.data) || {};
-    if (s.siteName) {
-      document.getElementById('siteName').textContent = s.siteName;
-      document.title = s.siteName + ' - 自动发卡，秒到账';
-    }
-    document.getElementById('announcement').textContent = s.announcement || '欢迎光临本店！';
-  } catch (e) {}
-}
-
-async function loadGoods() {
-  const grid = document.getElementById('goodsGrid');
-  if (!supa) { grid.innerHTML = '<div class="empty">请先点右上角 ⚙️ 配置 Supabase 接口</div>'; return; }
-  grid.innerHTML = '<div style="grid-column:1/-1" class="empty">正在加载商品...</div>';
-  try {
-    const { data, error } = await supa.from('goods').select('*').eq('status', 1).order('created_at', { ascending: false }).limit(100);
-    if (error) throw error;
-    goodsList = data || [];
-    if (!goodsList.length) { grid.innerHTML = ''; document.getElementById('emptyTip').style.display='block'; return; }
-    document.getElementById('emptyTip').style.display='none';
-    // 并发查库存
-    const stocks = await Promise.all(goodsList.map(async g => {
-      const { count } = await supa.from('cards').select('id', { count: 'exact', head: true }).eq('goods_id', g.id).eq('status', 0);
-      return count || 0;
-    }));
-    grid.innerHTML = goodsList.map((g, i) => {
-      const stock = stocks[i];
-      return `
-      <div class="goods-card">
-        ${g.category ? `<span class="goods-category">${escapeHtml(g.category)}</span>` : ''}
-        <div class="goods-cover">${escapeHtml(g.cover || '🎁')}</div>
-        <div class="goods-name">${escapeHtml(g.name)}</div>
-        <div class="goods-desc">${escapeHtml(g.description || '暂无介绍')}</div>
-        <div class="goods-meta">
-          <span class="goods-price"><small>¥</small>${money(g.price)}</span>
-          <span class="goods-sold">已售 ${g.sales||0}</span>
-        </div>
-        <div class="goods-stock ${stock<=3?'low':''}">${stock>0?'库存 '+stock+' 张':'⚠️ 已售罄'}</div>
-        <button class="btn btn-primary btn-block" ${stock<=0?'disabled':''} onclick='openBuy(${g.id})'>${stock>0?'立即购买':'暂时缺货'}</button>
-      </div>`;
-    }).join('');
-  } catch (e) {
-    grid.innerHTML = `<div style="grid-column:1/-1" class="empty">加载失败：${escapeHtml(e.message)}<br><button class="btn btn-primary" style="margin-top:12px" onclick="loadGoods()">重试</button></div>`;
-  }
-}
-
-/* ========== 购买 ========== */
-function openBuy(id) {
-  currentGoods = goodsList.find(g => g.id === id);
-  if (!currentGoods) return;
-  currentQty = 1;
-  document.getElementById('qtyNum').textContent = '1';
-  document.getElementById('buyEmail').value = localStorage.getItem('FAKA_EMAIL') || '';
-  document.getElementById('buySummary').innerHTML = `
-    <div class="cover">${escapeHtml(currentGoods.cover||'🎁')}</div>
-    <div><div class="name">${escapeHtml(currentGoods.name)}</div>
-    <div class="sub">单价 ¥${money(currentGoods.price)} / 张</div></div>`;
-  // 加载库存
-  supa.from('cards').select('id', { count: 'exact', head: true }).eq('goods_id', id).eq('status', 0).then(({count}) => {
-    document.getElementById('buyStock').textContent = count || 0;
-  });
-  updateTotal();
-  document.getElementById('buyModal').classList.add('show');
-}
-function changeQty(d) {
-  if (!currentGoods) return;
-  currentQty = Math.max(1, currentQty + d);
-  document.getElementById('qtyNum').textContent = currentQty;
-  updateTotal();
-}
-function updateTotal() {
-  if (currentGoods) document.getElementById('totalPrice').textContent = money(currentGoods.price * currentQty);
-}
-
-async function submitOrder() {
-  const email = document.getElementById('buyEmail').value.trim();
-  if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { toast('请填写正确的邮箱'); return; }
-  const btn = document.getElementById('submitOrderBtn');
-  btn.disabled = true; btn.textContent = '下单中...';
-  try {
-    // 选出 N 张未售卡
-    const { data: cands } = await supa.from('cards').select('id').eq('goods_id', currentGoods.id).eq('status', 0).limit(currentQty);
-    if (!cands || cands.length < currentQty) { toast('库存不足'); loadGoods(); return; }
-    const ids = cands.map(c => c.id);
-    // 原子锁定：只更新 status=0 的
-    const { data: locked } = await supa.from('cards').update({ status: 1 }).in('id', ids).eq('status', 0).select('id');
-    if (!locked || locked.length < currentQty) {
-      // 释放已锁的
-      if (locked && locked.length) await supa.from('cards').update({ status: 0 }).in('id', locked.map(c=>c.id)).eq('status', 1);
-      toast('库存不足，请稍后再试'); return;
-    }
-    const lockedIds = locked.map(c => c.id);
-    // 生成订单
-    const orderId = 'FK' + new Date().toISOString().slice(0,10).replace(/-/g,'') + Math.random().toString(36).slice(2,8).toUpperCase();
-    const amount = currentGoods.price * currentQty;
-    const { data: newOrder } = await supa.from('orders').insert({
-      order_id: orderId, goods_id: currentGoods.id, goods_name: currentGoods.name,
-      qty: currentQty, amount, email, status: 'pending', cards: [], paid_at: 0
-    }).select();
-    currentOrder = newOrder && newOrder[0];
-    // 关联订单号到卡
-    await supa.from('cards').update({ order_id: orderId }).in('id', lockedIds);
-    localStorage.setItem('FAKA_EMAIL', email);
-    closeModal('buyModal');
-    document.getElementById('payAmount').textContent = money(amount);
-    document.getElementById('payOrderId').textContent = orderId;
-    document.getElementById('payGoodsName').textContent = currentGoods.name;
-    document.getElementById('payQty').textContent = currentQty + ' 张';
-    const payBtn = document.getElementById('payBtn');
-    payBtn.disabled = false; payBtn.innerHTML = '确认支付（演示）';
-    document.getElementById('payModal').classList.add('show');
-    loadGoods();
-  } catch (e) { toast(e.message); }
-  finally { btn.disabled = false; btn.textContent = '立即下单'; }
-}
-
-async function simulatePay() {
-  const btn = document.getElementById('payBtn');
-  btn.disabled = true; btn.innerHTML = '<span class="spin"></span>支付处理中...';
-  await new Promise(r => setTimeout(r, 1200));
-  try {
-    // 结算锁定卡：把 status=1 的关联卡全部更新为 2
-    const { data: lockedCards } = await supa.from('cards').select('id,content').eq('order_id', currentOrder.order_id).eq('status', 1);
-    let cards = lockedCards || [];
-    // 兜底：如果锁卡缺失，补发
-    if (cards.length < currentOrder.qty) {
-      const { data: extra } = await supa.from('cards').select('id,content').eq('goods_id', currentOrder.goods_id).eq('status', 0).limit(currentOrder.qty - cards.length);
-      for (const c of (extra||[])) {
-        const { data: upd } = await supa.from('cards').update({ status: 1, order_id: currentOrder.order_id }).eq('id', c.id).eq('status', 0).select('id,content');
-        if (upd && upd[0]) cards.push(upd[0]);
-      }
-    }
-    if (cards.length < currentOrder.qty) { toast('库存不足，无法发货'); btn.disabled=false; btn.innerHTML='确认支付（演示）'; return; }
-    const contents = cards.map(c => c.content);
-    // 标记已售
-    await supa.from('cards').update({ status: 2, sold_at: Date.now() }).in('id', cards.map(c=>c.id));
-    // 更新订单
-    await supa.from('orders').update({ status: 'paid', paid_at: Date.now(), cards: contents }).eq('id', currentOrder.id);
-    // 销量 +N
-    await supa.from('goods').update({ sales: (currentGoods.sales||0) + currentOrder.qty }).eq('id', currentGoods.goods_id || currentGoods.id);
-    currentCards = contents;
-    closeModal('payModal');
-    showResult({ ...currentOrder, cards: contents });
-    loadGoods();
-  } catch (e) { toast(e.message); btn.disabled=false; btn.innerHTML='确认支付（演示）'; }
-}
-
-function showResult(order) {
-  document.getElementById('resultOrderId').textContent = order.order_id;
-  document.getElementById('cardList').innerHTML = currentCards.map(c => `
-    <div class="card-secret">
-      <code>${escapeHtml(c)}</code>
-      <button class="copy-one" onclick="copyText('${escapeHtml(c)}', this)">复制</button>
-    </div>`).join('');
-  document.getElementById('resultModal').classList.add('show');
-}
-
-function copyText(text, btn) {
-  navigator.clipboard.writeText(text).then(() => {
-    toast('已复制');
-    if (btn) { const old = btn.textContent; btn.textContent = '✓ 已复制'; setTimeout(()=>btn.textContent=old, 1500); }
-  }).catch(() => {
-    const ta = document.createElement('textarea'); ta.value=text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
-    toast('已复制');
-  });
-}
-function copyAll() { copyText(currentCards.join('\n')); }
-
-/* ========== 订单查询 ========== */
-function openQuery() {
-  document.getElementById('queryResult').innerHTML = '';
-  document.getElementById('queryModal').classList.add('show');
-}
-async function doQuery() {
-  const orderId = document.getElementById('queryOrderId').value.trim();
-  const email = document.getElementById('queryEmail').value.trim();
-  if (!orderId || !email) { toast('请填写完整'); return; }
-  const box = document.getElementById('queryResult');
-  box.innerHTML = '<div class="empty" style="padding:20px 0">查询中...</div>';
-  try {
-    const { data: order } = await supa.from('orders').select('*').eq('order_id', orderId).eq('email', email).maybeSingle();
-    if (!order) { box.innerHTML = '<div style="color:var(--danger);font-size:13px;text-align:center;padding:10px 0">未找到匹配的订单</div>'; return; }
-    const statusText = { pending:'⏳ 待支付', paid:'✅ 已支付', cancelled:'❌ 已关闭' }[order.status] || order.status;
-    box.innerHTML = `
-      <div class="pay-info">
-        <div class="row"><span>商品</span><b>${escapeHtml(order.goods_name)} × ${order.qty}</b></div>
-        <div class="row"><span>金额</span><b>¥${money(order.amount)}</b></div>
-        <div class="row"><span>状态</span><b>${statusText}</b></div>
-      </div>
-      ${order.status==='paid' && order.cards && order.cards.length ? order.cards.map(c => `
-        <div class="card-secret"><code>${escapeHtml(c)}</code>
-        <button class="copy-one" onclick="copyText('${escapeHtml(c)}', this)">复制</button></div>`).join('')
-        : '<div style="font-size:13px;color:var(--text-sub);text-align:center">支付完成后这里会显示卡密</div>'}`;
-  } catch (e) {
-    box.innerHTML = `<div style="color:var(--danger);font-size:13px;text-align:center;padding:10px 0">${escapeHtml(e.message)}</div>`;
-  }
-}
-
-/* ========== 启动 ========== */
-window.addEventListener('DOMContentLoaded', async () => {
-  if (!initSupa()) { openApiSetting(); return; }
-  await loadSite();
-  loadGoods();
-});
-document.querySelectorAll('.modal-mask').forEach(m => m.addEventListener('click', e => { if (e.target===m) m.classList.remove('show'); }));
-</script>
 </body>
 </html>
