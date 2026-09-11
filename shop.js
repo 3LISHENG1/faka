@@ -5,8 +5,12 @@
 
 const CFG = window.FAKA_CONFIG;
 if (!CFG || !CFG.SUPA_URL || !CFG.SUPA_KEY) {
-  document.getElementById('goodsGrid').innerHTML =
-    '<div class="empty">请先编辑 assets/config.js 填写 Supabase 接口地址</div>';
+  const g = document.getElementById('goodsGrid');
+  g.textContent = '';
+  const tip = document.createElement('div');
+  tip.className = 'empty';
+  tip.textContent = '请先编辑站点根目录下的 config.js，填写 Supabase 接口地址';
+  g.appendChild(tip);
   throw new Error('FAKA_CONFIG missing');
 }
 
@@ -157,7 +161,7 @@ async function submitOrder() {
   btn.textContent = '下单中...';
   try {
     const { data, error } = await supa.rpc('rpc_create_order', {
-      p_goods_id: current.id, p_qty: qty, p_email: email,
+      p_goods_id: current.id, p_qty: qty, p_email: email, p_code: getRef(),
     });
     if (error) { toast(errText(error)); console.error(error); return; }
 
@@ -338,7 +342,22 @@ function bind() {
   $('buyEmail').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitOrder(); });
 }
 
+/* ---------- 推广邀请码 ----------
+   只在本次标签页会话内保持：够覆盖"点推广链接 → 下单"，
+   又不给访客挂一个跨会话的追踪标识。 */
+const REF_RE = /^[A-Za-z0-9]{6,16}$/;
+function captureRef() {
+  try {
+    const r = new URLSearchParams(location.search).get('ref');
+    if (r && REF_RE.test(r.trim())) sessionStorage.setItem('FAKA_REF', r.trim().toUpperCase());
+  } catch (e) { /* URL 异常时按无归因处理 */ }
+}
+function getRef() {
+  try { return sessionStorage.getItem('FAKA_REF') || ''; } catch (e) { return ''; }
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
+  captureRef();
   bind();
   await loadSite();
   loadCatalog();

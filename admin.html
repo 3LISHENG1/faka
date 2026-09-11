@@ -103,6 +103,7 @@
       <button class="nav-item" data-view="goods">📦 商品管理</button>
       <button class="nav-item" data-view="cards">🎫 卡密管理</button>
       <button class="nav-item" data-view="orders">🧾 订单管理</button>
+      <button class="nav-item" data-view="agents">📣 推广返佣</button>
       <button class="nav-item" data-view="settings">⚙️ 系统设置</button>
       <button type="button" class="nav-item logout" data-action="logout">🚪 退出登录</button>
     </aside>
@@ -179,6 +180,41 @@
             <tbody></tbody>
           </table></div>
           <div class="empty" id="ordersEmpty" style="display:none">暂无订单</div>
+        </div>
+      </section>
+
+      <section id="view-agents" class="view" style="display:none">
+        <div class="page-title">推广返佣</div>
+        <div class="panel">
+          <div class="panel-head"><h4>新建推广员</h4></div>
+          <div class="hint" style="margin-bottom:12px">只做一级：A 推荐 B，B 下单 A 拿提成；B 再推荐的人与 A 无关。</div>
+          <div class="form-row">
+            <div class="form-item" style="flex:0 0 170px"><label>邀请码（6-16 位大写字母数字）</label><input type="text" id="agCode" maxlength="16" placeholder="PROMO10" autocomplete="off"></div>
+            <div class="form-item"><label>昵称</label><input type="text" id="agName" maxlength="20"></div>
+            <div class="form-item"><label>联系方式（选填）</label><input type="text" id="agContact" maxlength="60"></div>
+            <div class="form-item" style="flex:0 0 110px"><label>返佣 %</label><input type="number" id="agRate" min="0" max="30" step="0.5" value="10"></div>
+          </div>
+          <button type="button" class="btn btn-primary" data-action="add-agent">创建推广员</button>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h4>推广员列表</h4></div>
+          <div style="overflow-x:auto"><table id="agentsTable">
+            <thead><tr><th>邀请码 / 推广链接</th><th>昵称</th><th>返佣</th><th>待结佣金</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody></tbody>
+          </table></div>
+          <div class="empty" id="agentsEmpty" style="display:none">还没有推广员</div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h4>佣金台账</h4>
+            <select id="earnFilter" style="padding:8px 10px;border:1.5px solid var(--border);border-radius:9px;font-family:inherit">
+              <option value="">全部状态</option><option value="pending">仅待结</option><option value="settled">仅已结</option>
+            </select>
+          </div>
+          <div style="overflow-x:auto"><table id="earningsTable">
+            <thead><tr><th>订单号</th><th>推广员</th><th>订单额</th><th>比例</th><th>应结</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody></tbody>
+          </table></div>
+          <div class="empty" id="earningsEmpty" style="display:none">暂无佣金记录</div>
         </div>
       </section>
 

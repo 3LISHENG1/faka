@@ -338,3 +338,114 @@ document.addEventListener('DOMContentLoaded', async () => {
   const { data: adm } = await supa.from('admin_users').select('user_id').eq('user_id', sess.user.id).maybeSingle();
   if (adm && adm.data) { showApp(); boot(); } else showLogin();
 });
+
+/* ================= 推广返佣（一级） ================= */
+const SITE_URL = location.href.replace(/[^/]*$/, '');   // 用于拼推广链接
+
+async function loadAgents() {
+  const { data: agents, error } = await supa.from('agents').select('*').order('created_at', { ascending: false });
+  if (error) { toast(errText(error)); return; }
+  const tbody = document.querySelector('#agentsTable tbody');
+  tbody.textContent = '';
+  $('agentsEmpty').style.display = (agents || []).length ? 'none' : 'block';
+  for (const a of agents || []) {
+    const { data: sum } = await supa.from('agent_earnings')
+      .select('commission').eq('agent_id', a.id).eq('status', 'pending');
+    const pending = (sum || []).reduce((s, r) => s + Number(r.commission || 0), 0);
+    const tr = el('tr');
+    const codeTd = el('td', 'td-wrap');
+    codeTd.appendChild(el('b', null, a.code));
+    const link = SITE_URL + '?ref=' + a.code;
+    codeTd.appendChild(el('div', 'sub', link));
+    tr.appendChild(codeTd);
+    tr.appendChild(el('td', null, a.name));
+    tr.appendChild(el('td', null, (a.rate_bp / 100).toFixed(2) + '%'));
+    tr.appendChild(el('td', null, '¥' + money(pending)));
+    tr.appendChild(el('td', null, a.status === 1 ? '启用中' : '已停用'));
+    const ops = el('td');
+    ops.appendChild(btn('btn btn-ghost btn-sm', '复制链接', () => copyText(link)));
+    ops.appendChild(document.createTextNode(' '));
+    ops.appendChild(btn(a.status === 1 ? 'btn btn-danger btn-sm' : 'btn btn-ghost btn-sm',
+      a.status === 1 ? '停用' : '启用', async () => {
+      if (a.status === 1 && !confirm('停用「' + a.name + '」？停用后新订单不再计佣，历史台账保留。')) return;
+      const r = await supa.from('agents').update({ status: a.status === 1 ? 0 : 1 }).eq('id', a.id);
+      if (r.error) { toast(errText(r.error)); return; }
+      toast('已更新'); loadAgents();
+    }));
+    tr.appendChild(ops);
+    tbody.appendChild(tr);
+  }
+}
+
+async function addAgent() {
+  const code = $('agCode').value.trim().toUpperCase();
+  const name = $('agName').value.trim();
+  const rate = parseFloat($('agRate').value);
+  if (!/^[A-Z0-9]{6,16}$/.test(code)) { toast('邀请码需为 6-16 位字母或数字'); return; }
+  if (!name) { toast('请填写昵称'); return; }
+  if (!Number.isFinite(rate) || rate < 0 || rate > 30) { toast('返佣比例 0~30%'); return; }
+  const { error } = await supa.from('agents').insert({
+    code, name, contact: $('agContact').value.trim(),
+    rate_bp: Math.round(rate * 100), status: 1,
+    created_at: Date.now(),
+  });
+  if (error) { toast(error.message.includes('duplicate') || error.message.includes('unique') ? '该邀请码已存在' : errText(error)); return; }
+  ['agCode', 'agName', 'agContact'].forEach((id) => { $(id).value = ''; });
+  $('agRate').value = '10';
+  toast('已创建推广员'); loadAgents();
+}
+
+async function loadEarnings() {
+  const status = $('earnFilter').value;
+  let q = supa.from('agent_earnings').select('*').order('created_at', { ascending: false }).limit(300);
+  if (status) q = q.eq('status', status);
+  const { data, error } = await q;
+  if (error) { toast(errText(error)); return; }
+  const tbody = document.querySelector('#earningsTable tbody');
+  tbody.textContent = '';
+  $('earningsEmpty').style.display = (data || []).length ? 'none' : 'block';
+  for (const r of data || []) {
+    const tr = el('tr');
+    tr.appendChild(el('td', 'td-wrap', r.order_id));
+    tr.appendChild(el('td', null, r.agent_code));
+    tr.appendChild(el('td', null, '¥' + money(r.order_amount)));
+    tr.appendChild(el('td', null, (r.rate_bp / 100).toFixed(2) + '%'));
+    tr.appendChild(el('td', null, '¥' + money(r.commission)));
+    tr.appendChild(el('td', null, { pending: '待结', settled: '已结', void: '已作废' }[r.status] || r.status));
+    const ops = el('td');
+    if (r.status === 'pending') {
+      ops.appendChild(btn('btn btn-primary btn-sm', '标记已结', async () => {
+        const note = prompt('备注（线下转账单号/渠道，可留空）：', '') ;
+        if (note === null) return;
+        const u = await supa.from('agent_earnings')
+          .update({ status: 'settled', settled_at: Date.now(), settle_note: note.trim() })
+          .eq('id', r.id).eq('status', 'pending');   // 二次条件：并发下不会重复标记
+        if (u.error) { toast(errText(u.error)); return; }
+        toast('已标记'); loadEarnings(); loadAgents();
+      }));
+    } else ops.appendChild(el('span', 'sub', r.settled_at ? fmtTime(r.settled_at) : '-'));
+    tr.appendChild(ops);
+    tbody.appendChild(tr);
+  }
+}
+
+function copyText(text) {
+  const done = () => toast('已复制推广链接');
+  if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(done, () => {});
+  else {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.left = '-9999px';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); done(); } catch (e) { toast('复制失败，请手动选中'); }
+    document.body.removeChild(ta);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const nav = document.querySelector('.nav-item[data-view="agents"]');
+  if (nav) nav.addEventListener('click', () => { loadAgents(); loadEarnings(); });
+  const ab = document.querySelector('[data-action="add-agent"]');
+  if (ab) ab.addEventListener('click', addAgent);
+  const ef = $('earnFilter');
+  if (ef) ef.addEventListener('change', loadEarnings);
+});
