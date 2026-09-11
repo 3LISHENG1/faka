@@ -423,7 +423,20 @@ async function loadEarnings() {
         if (u.error) { toast(errText(u.error)); return; }
         toast('已标记'); loadEarnings(); loadAgents();
       }));
-    } else ops.appendChild(el('span', 'sub', r.settled_at ? fmtTime(r.settled_at) : '-'));
+      ops.appendChild(document.createTextNode(' '));
+      ops.appendChild(btn('btn btn-danger btn-sm', '作废', async () => {
+        // 只作废 pending：已结说明钱已付出去，作废会造成账实不符
+        const why = prompt('作废原因（必填，留档备查）。例如：测试数据 / 买家已退款 / 归因有误', '');
+        if (why === null) return;
+        if (!why.trim()) { toast('请填写作废原因'); return; }
+        const u = await supa.from('agent_earnings')
+          .update({ status: 'void', settle_note: why.trim().slice(0, 200) })
+          .eq('id', r.id).eq('status', 'pending');   // 二次条件：不会把已结的行改成作废
+        if (u.error) { toast(errText(u.error)); return; }
+        toast('已作废'); loadEarnings(); loadAgents();
+      }));
+    } else ops.appendChild(el('span', 'sub',
+      r.status === 'void' ? (r.settle_note || '已作废') : (r.settled_at ? fmtTime(r.settled_at) : '-')));
     tr.appendChild(ops);
     tbody.appendChild(tr);
   }
