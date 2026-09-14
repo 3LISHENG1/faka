@@ -92,6 +92,11 @@ async function loadCatalog() {
   for (const g of catalog) grid.appendChild(renderCard(g));
 }
 
+/* ---------- 货源代发：配了对方 SKU 的商品不受本店卡密库存限制 ---------- */
+function supplierSku(g) {
+  return String((g && g.supplier_sku_id) || '').trim();
+}
+
 function renderCard(g) {
   const stock = Number(g.stock) || 0;
   const box = el('div', 'goods-card');
@@ -109,12 +114,17 @@ function renderCard(g) {
   meta.appendChild(el('span', 'goods-sold', `已售 ${Number(g.sales) || 0}`));
   box.appendChild(meta);
 
-  const stockEl = el('div', 'goods-stock' + (stock <= 3 ? ' low' : ''),
-    stock > 0 ? `库存 ${stock} 张` : '⚠️ 已售罄');
-  box.appendChild(stockEl);
+  const sku = supplierSku(g);
+  if (sku) {
+    box.appendChild(el('div', 'goods-stock', '货源直发 · 付款后自动发货'));
+  } else {
+    box.appendChild(el('div', 'goods-stock' + (stock <= 3 ? ' low' : ''),
+      stock > 0 ? `库存 ${stock} 张` : '⚠️ 已售罄'));
+  }
 
-  const btn = el('button', 'btn btn-primary btn-block', stock > 0 ? '立即购买' : '暂时缺货');
-  btn.disabled = stock <= 0;
+  const btn = el('button', 'btn btn-primary btn-block',
+    (sku || stock > 0) ? '立即购买' : '暂时缺货');
+  btn.disabled = !sku && stock <= 0;
   btn.type = 'button';
   btn.addEventListener('click', () => openBuy(g));
   box.appendChild(btn);
@@ -134,7 +144,10 @@ function openBuy(g) {
   info.appendChild(el('div', 'name', g.name));
   info.appendChild(el('div', 'sub', `单价 ¥${money(g.price)} / 张`));
   sum.appendChild(info);
-  $('buyStock').textContent = String(Number(g.stock) || 0);
+  const hint = $('buyStockHint');
+  if (hint) hint.textContent = supplierSku(g)
+    ? '（货源直发，单次 1~10 张）'
+    : `（剩余库存 ${Number(g.stock) || 0} 张）`;
   updateTotal();
   show('buyModal');
   $('buyEmail').focus();

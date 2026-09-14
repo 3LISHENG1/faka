@@ -57,6 +57,7 @@ function switchView(name) {
   if (name === 'cards') { loadGoodsForSelect().then(loadCards); }
   if (name === 'orders') loadOrders();
   if (name === 'settings') loadSiteSettings();
+  if (name === 'supplier') loadSupplier();
 }
 
 /* ---------- 登录 / 会话 ---------- */
@@ -156,7 +157,7 @@ function openGoodsModal(g) {
   $('gPrice').value = g ? money(g.price) : '';
   $('gCategory').value = g ? (g.category || '') : '';
   $('gDesc').value = g ? (g.description || '') : '';
-  $('gStatus').value = g ? String(g.status) : '1';
+  $('gSupplier').value = g ? (g.supplier_sku_id || '') : '';
   $('goodsModal').classList.add('show');
 }
 async function saveGoods() {
@@ -168,7 +169,7 @@ async function saveGoods() {
   const payload = {
     name, cover: $('gCover').value || '🎁', price: Math.round(price * 100),
     category: $('gCategory').value.trim(), description: $('gDesc').value.trim(),
-    status: parseInt($('gStatus').value, 10),
+    supplier_sku_id: $('gSupplier').value.trim(),
   };
   const b = $('saveGoodsBtn'); b.disabled = true;
   try {
@@ -307,6 +308,52 @@ async function saveSite() {
   toast(error ? errText(error) : '保存成功，买家商城刷新后生效');
 }
 
+/* ---------- 货源对接（dujiao-next） ---------- */
+async function loadSupplier() {
+  const { data, error } = await supa.from('supplier_config').select('*').eq('id', 'supplier').maybeSingle();
+  if (error) { toast(errText(error)); return; }
+  const c = data || {};
+  $('supEnabled').value = c.enabled ? '1' : '0';
+  $('supBaseUrl').value = c.base_url || '';
+  $('supApiKey').value = c.api_key || '';
+}
+async function saveSupplier() {
+  const base = $('supBaseUrl').value.trim();
+  if (base && !/^https:\/\/api\.|^https:\/\//i.test(base)) { toast('对接网址必须是 https:// 开头'); return; }
+  const payload = {
+    id: 'supplier',
+    enabled: $('supEnabled').value === '1',
+    base_url: base,
+    api_key: $('supApiKey').value.trim(),
+    updated_at: Date.now(),
+  };
+  const { error } = await supa.from('supplier_config').upsert(payload);
+  toast(error ? errText(error) : '已保存。商户密钥请单独配到 Edge Function Secrets（见 README 第 3 步）。');
+}
+async function pullCatalog() {
+  const b = document.querySelector('[data-action="pull-catalog"]');
+  const box = $('supCatalog');
+  if (b) { b.disabled = true; b.textContent = '拉取中...'; }
+  try {
+    const { data, error } = await supa.functions.invoke('supplier-fulfill', {
+      method: 'POST', body: { action: 'catalog' },
+    });
+    if (error) { box.textContent = ''; toast(errText(error)); return; }
+    if (!data || data.ok === false) {
+      box.textContent = '';
+      toast((data && (data.error_message || data.err)) || '拉取失败');
+      return;
+    }
+    const items = data.items || [];
+    box.textContent = items.length
+      ? 'sku_id | 标题 | 价格 | 库存\n' + items.map((it) => `${it.sku_id} | ${it.title} | ¥${it.price} | ${it.stock}`).join('\n')
+      : '对方暂无在售商品';
+    toast('已拉取 ' + items.length + ' 条');
+  } finally {
+    if (b) { b.disabled = false; b.textContent = '拉取对方商品清单'; }
+  }
+}
+
 /* ---------- 事件绑定 ---------- */
 function bind() {
   $('loginBtn').addEventListener('click', doLogin);
@@ -321,6 +368,8 @@ function bind() {
     if (a === 'save-goods') b.addEventListener('click', saveGoods);
     if (a === 'import-cards') b.addEventListener('click', importCards);
     if (a === 'save-site') b.addEventListener('click', saveSite);
+    if (a === 'save-supplier') b.addEventListener('click', saveSupplier);
+    if (a === 'pull-catalog') b.addEventListener('click', pullCatalog);
   });
   document.querySelectorAll('[data-close]').forEach((b) =>
     b.addEventListener('click', () => $(b.getAttribute('data-close')).classList.remove('show')));

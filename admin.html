@@ -104,6 +104,7 @@
       <button class="nav-item" data-view="cards">🎫 卡密管理</button>
       <button class="nav-item" data-view="orders">🧾 订单管理</button>
       <button class="nav-item" data-view="agents">📣 推广返佣</button>
+      <button class="nav-item" data-view="supplier">🔗 货源对接</button>
       <button class="nav-item" data-view="settings">⚙️ 系统设置</button>
       <button type="button" class="nav-item logout" data-action="logout">🚪 退出登录</button>
     </aside>
@@ -218,6 +219,24 @@
         </div>
       </section>
 
+      <section id="view-supplier" class="view" style="display:none">
+        <div class="page-title">货源对接</div>
+        <div class="panel">
+          <div class="panel-head"><h4>对接参数（协议 dujiao-next）</h4></div>
+          <div class="form-item"><label>货源代发</label><select id="supEnabled"><option value="0">关闭（只卖本店卡密）</option><option value="1">开启（本店无货时自动向对方下单）</option></select></div>
+          <div class="form-item"><label>对接网址 base_url</label><input type="text" id="supBaseUrl" maxlength="200" placeholder="https://api.fb0.cc"></div>
+          <div class="form-item"><label>商户 ID（= dujiao-next 的 API Key）</label><input type="text" id="supApiKey" maxlength="120" placeholder="在对方「我的主页」获取"></div>
+          <button type="button" class="btn btn-primary" data-action="save-supplier">保存对接参数</button>
+          <button type="button" class="btn btn-ghost" data-action="pull-catalog">拉取对方商品清单</button>
+          <div class="form-item" style="margin-top:14px"><label>对方商品清单（sku_id | 标题 | 价格 | 库存）</label><textarea id="supCatalog" readonly style="min-height:170px;font-size:12px" placeholder="点上方按钮拉取，直接复制 sku_id 到商品编辑框"></textarea></div>
+          <div class="hint" style="margin-top:14px">⚠️ <b>「商户密钥」不提供输入框，也不允许存进数据库。</b><br>
+          admin.html 是 GitHub Pages 上的公开静态页，写进前端或 settings 的明文密钥，任何拿到后台网址的人都能读走；
+          dujiao-next 的签名 = HMAC-SHA256(商户密钥)，拿到密钥即可任意刷你的对方余额。
+          它只能放在 Supabase Edge Function 的 Secrets 里，由服务端签名，浏览器永远拿不到。配置方法见 README 第 3 步。</div>
+          <div class="hint" style="margin-top:10px">每个商品对应对方哪个 SKU，在「商品管理 → 编辑商品 → 对方 SKU ID」里填；留空的商品仍走本店卡密库存。</div>
+        </div>
+      </section>
+
       <section id="view-settings" class="view" style="display:none">
         <div class="page-title">系统设置</div>
         <div class="panel">
@@ -249,7 +268,7 @@
       <div class="form-item"><label>单价（元）*</label><input type="number" id="gPrice" min="0.01" step="0.01" placeholder="9.90"></div>
       <div class="form-item"><label>分类（选填）</label><input type="text" id="gCategory" maxlength="10" placeholder="例如：会员卡"></div>
     </div>
-    <div class="form-item"><label>商品介绍（选填）</label><textarea id="gDesc" maxlength="200" style="min-height:70px" placeholder="展示在商品卡片上"></textarea></div>
+    <div class="form-item"><label>对方 SKU ID（货源代发用，选填）</label><input type="text" id="gSupplier" maxlength="60" placeholder="留空 = 该商品只卖本店卡密"></div>
     <div class="form-item"><label>上架状态</label><select id="gStatus"><option value="1">上架（买家可见）</option><option value="0">下架（买家不可见）</option></select></div>
     <div class="modal-actions">
       <button class="btn btn-ghost">取消</button>
