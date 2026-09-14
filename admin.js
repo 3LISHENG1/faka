@@ -330,15 +330,35 @@ async function saveSupplier() {
   const { error } = await supa.from('supplier_config').upsert(payload);
   toast(error ? errText(error) : '已保存。商户密钥请单独配到 Edge Function Secrets（见 README 第 3 步）。');
 }
+// 用原生 fetch 而不是 supa.functions.invoke：supabase-js 会额外带上
+// X-Client-Info 请求头，若 Edge Function 的 CORS 白名单里没有它，
+// 浏览器在预检阶段就把请求掐掉，表现为一律报
+// "Failed to send a request to the Edge Function"。
+// 这里只发 content-type + authorization 两个头，预检必然通过。
+async function fnCall(body) {
+  const { data } = await supa.auth.getSession();
+  const jwt = data && data.session && data.session.access_token;
+  if (!jwt) throw new Error('登录状态已失效，请重新登录后台');
+  const res = await fetch(
+    CFG.SUPA_URL.replace(/\/+$/, '') + '/functions/v1/supplier-fulfill',
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + jwt },
+      body: JSON.stringify(body),
+    },
+  );
+  const text = await res.text();
+  let json = null;
+  try { json = JSON.parse(text); } catch { /* 非 JSON 走下面的兜底 */ }
+  if (!res.ok && !json) throw new Error('HTTP ' + res.status + '：' + text.slice(0, 160));
+  return json;
+}
 async function pullCatalog() {
   const b = document.querySelector('[data-action="pull-catalog"]');
   const box = $('supCatalog');
   if (b) { b.disabled = true; b.textContent = '拉取中...'; }
   try {
-    const { data, error } = await supa.functions.invoke('supplier-fulfill', {
-      method: 'POST', body: { action: 'catalog' },
-    });
-    if (error) { box.textContent = ''; toast(errText(error)); return; }
+    const data = await fnCall({ action: 'catalog' });
     if (!data || data.ok === false) {
       box.textContent = '';
       toast((data && (data.error_message || data.err)) || '拉取失败');
@@ -349,6 +369,9 @@ async function pullCatalog() {
       ? 'sku_id | 标题 | 价格 | 库存\n' + items.map((it) => `${it.sku_id} | ${it.title} | ¥${it.price} | ${it.stock}`).join('\n')
       : '对方暂无在售商品';
     toast('已拉取 ' + items.length + ' 条');
+  } catch (e) {
+    box.textContent = '';
+    toast(String((e && e.message) || e || '请求失败'));
   } finally {
     if (b) { b.disabled = false; b.textContent = '拉取对方商品清单'; }
   }
