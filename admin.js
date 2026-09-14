@@ -366,9 +366,8 @@ async function pullCatalog() {
     }
     const items = data.items || [];
     box.textContent = items.length
-      ? 'sku_id | 标题 | 价格 | 库存\n' + items.map((it) => `${it.sku_id} | ${it.title} | ¥${it.price} | ${it.stock}`).join('\n')
-      : '对方暂无在售商品';
-    toast('已拉取 ' + items.length + ' 条');
+      ? 'sku_id | 标题 | 价格 | 库存 | 发货\n' + items.map((it) => `${it.sku_id} | ${it.title} | ¥${it.price} | ${it.stock}${it.delivery ? ' | ' + it.delivery : ''}`).join('\n')
+      : '对方暂无在售商品';    toast('已拉取 ' + items.length + ' 条');
   } catch (e) {
     box.textContent = '';
     toast(String((e && e.message) || e || '请求失败'));
