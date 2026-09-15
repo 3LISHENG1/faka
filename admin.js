@@ -8,6 +8,7 @@ const supa = window.supabase.createClient(CFG.SUPA_URL, CFG.SUPA_KEY);
 
 let goodsCache = [];
 let goodsLoaded = false;
+let skuIndex = null;
 let lastCatalog = [];
 let orderCache = [];
 
@@ -127,7 +128,7 @@ async function loadDashboard() {
 
 /* ---------- 商品 ---------- */
 async function loadGoodsAdmin() {
-  const { data, error } = await supa.from('goods').select('*').order('created_at', { ascending: false }).limit(1000);
+  const { data, error } = await supa.from('goods').select('*').order('created_at', { ascending: false }).limit(3000);
   if (error) { toast(errText(error)); return; }
   goodsCache = data || [];
   goodsLoaded = true;
@@ -187,6 +188,7 @@ async function saveGoods() {
     else r = await supa.from('goods').insert(Object.assign({ sales: 0, created_at: Date.now() }, payload));
     if (r.error) { toast(errText(r.error)); return; }
     toast('保存成功'); $('goodsModal').classList.remove('show'); loadGoodsAdmin();
+    refreshSkuIndex().then(() => renderCatalogList()).catch(() => {});
   } finally { b.disabled = false; }
 }
 async function deleteGoods(g) {
@@ -382,6 +384,7 @@ async function pullCatalog() {
     box.textContent = (items.length
       ? 'sku_id | 标题 | 价格 | 库存 | 发货\n' + items.map((it) => `${it.sku_id} | ${it.title} | ¥${it.price} | ${it.stock}${it.delivery ? ' | ' + it.delivery : ''}`).join('\n')
       : '对方暂无在售商品') + meta;
+    try { await refreshSkuIndex(); } catch (e) { toast('已建商品列表刷新失败：' + e.message); }
     renderCatalogList();
     toast('已拉取 ' + items.length + ' 条');
   } catch (e) {
@@ -406,7 +409,25 @@ function guessCategory(title) {
   const m = String(title || '').match(/^[A-Za-z]{2,10}/);
   return m ? m[0] : '';
 }
-function builtSkuSet() {
+// 「已建」判断不能依赖商品列表缓存：商品表 loadGoodsAdmin 只取前 1000 行，
+// 一旦超过就会漏判，批量建商品会造出重复商品。这里单独把全部
+// supplier_sku_id 拉一遍（只取一列，很轻），分页取到干净为止。
+async function existingSkus() {
+  const set = new Set();
+  for (let p = 0; p < 20; p++) {
+    const { data, error } = await supa.from('goods').select('supplier_sku_id')
+      .neq('supplier_sku_id', '').range(p * 1000, p * 1000 + 999);
+    if (error) throw new Error(errText(error));
+    for (const r of data || []) set.add(String(r.supplier_sku_id));
+    if (!data || data.length < 1000) break;
+  }
+  return set;
+}
+async function refreshSkuIndex() {
+  skuIndex = await existingSkus();
+  return skuIndex;
+}function builtSkuSet() {
+  if (skuIndex) return skuIndex;
   return new Set((goodsCache || []).map((g) => String(g.supplier_sku_id || '')).filter(Boolean));
 }
 // 关键词框同时作用于「列表显示」和「批量建商品」。
@@ -485,9 +506,8 @@ function goodsPayload(it) {
 // 批量建：只处理「关键词命中 + 还没建过」的行，逐条插入并实时报进度
 async function bulkGoods() {
   if (!lastCatalog.length) { toast('先点「拉取对方商品清单」'); return; }
-  // 判重依赖 goodsCache，没加载完就开建会造重复商品
-  if (!goodsLoaded) await loadGoodsAdmin();
-  if (!goodsLoaded) { toast('商品列表没能加载，刷新页面重试'); return; }
+  // 判重要取全库的 supplier_sku_id，不能用只取 1000 行的商品列表缓存
+  try { await refreshSkuIndex(); } catch (e) { toast('取已建商品失败：' + e.message); return; }
   const built = builtSkuSet();
   const todo = catalogFiltered().filter((it) => !built.has(String(it.sku_id)));
   if (!todo.length) { toast('没有「关键词命中且未建过」的商品'); return; }
