@@ -7,6 +7,7 @@ const CFG = window.FAKA_CONFIG;
 const supa = window.supabase.createClient(CFG.SUPA_URL, CFG.SUPA_KEY);
 
 let goodsCache = [];
+let lastCatalog = [];
 let orderCache = [];
 
 function el(tag, cls, text) {
@@ -125,14 +126,18 @@ async function loadDashboard() {
 
 /* ---------- 商品 ---------- */
 async function loadGoodsAdmin() {
-  const { data, error } = await supa.from('goods').select('*').order('created_at', { ascending: false }).limit(200);
+  const { data, error } = await supa.from('goods').select('*').order('created_at', { ascending: false }).limit(1000);
   if (error) { toast(errText(error)); return; }
   goodsCache = data || [];
+  // 卡密归属一次取回来本地计数：逐行 count 在商品上百个时会把页面卡死
+  const cardRows = await supa.from('cards').select('goods_id').eq('status', 0).limit(20000);
+  const cardCount = {};
+  for (const c of cardRows.data || []) cardCount[c.goods_id] = (cardCount[c.goods_id] || 0) + 1;
   const tbody = document.querySelector('#goodsTable tbody');
   tbody.textContent = '';
   $('goodsEmpty').style.display = goodsCache.length ? 'none' : 'block';
   for (const g of goodsCache) {
-    const { count } = await supa.from('cards').select('id', { count: 'exact', head: true }).eq('goods_id', g.id).eq('status', 0);
+    const count = cardCount[g.id] || 0;
     const tr = el('tr');
     tr.appendChild(el('td', null, (g.cover || '🎁') + ' ' + g.name));
     tr.appendChild(el('td', null, g.category || '-'));
@@ -358,7 +363,6 @@ async function fnCall(body) {
 async function pullCatalog() {
   const b = document.querySelector('[data-action="pull-catalog"]');
   const box = $('supCatalog');
-  renderCatalogList([]);
   if (b) { b.disabled = true; b.textContent = '拉取中...'; }
   try {
     const data = await fnCall({ action: 'catalog' });
@@ -368,24 +372,45 @@ async function pullCatalog() {
       return;
     }
     const items = data.items || [];
+    lastCatalog = items;
     box.textContent = items.length
       ? 'sku_id | 标题 | 价格 | 库存 | 发货\n' + items.map((it) => `${it.sku_id} | ${it.title} | ¥${it.price} | ${it.stock}${it.delivery ? ' | ' + it.delivery : ''}`).join('\n')
-      : '对方暂无在售商品';    toast('已拉取 ' + items.length + ' 条');
+      : '对方暂无在售商品';
     renderCatalogList(items);
+    toast('已拉取 ' + items.length + ' 条');
   } catch (e) {
     box.textContent = '';
+    lastCatalog = [];
+    renderCatalogList([]);
     toast(String((e && e.message) || e || '请求失败'));
   } finally {
     if (b) { b.disabled = false; b.textContent = '拉取对方商品清单'; }
   }
 }
-
-// 清单渲染成可点行：省掉「复制 sku_id → 新建商品 → 逐个粘贴」的手工活
+// 建议零售价：进价按加价率上浮后向上取整再落到 X.9，比 12.42 这种数字好卖
+function retailPrice(p, pct) {
+  const v = Number(p) || 0;
+  return Math.max(1, Math.ceil(v * (1 + pct))) - 0.1;
+}
+function markupPct() {
+  const el2 = $('supMarkup');
+  const n = el2 ? Number(el2.value) : 30;
+  return (Number.isFinite(n) ? Math.min(500, Math.max(0, n)) : 30) / 100;
+}
+// 标题开头的英文单词当分类，前台的分类筛选才有用
+function guessCategory(title) {
+  const m = String(title || '').match(/^[A-Za-z]{2,10}/);
+  return m ? m[0] : '';
+}
+function builtSkuSet() {
+  return new Set((goodsCache || []).map((g) => String(g.supplier_sku_id || '')).filter(Boolean));
+}
 function renderCatalogList(items) {
   const list = $('supCatalogList');
   if (!list) return;
   list.textContent = '';
-  for (const it of (items || []).slice(0, 300)) {
+  const built = builtSkuSet();
+  for (const it of (items || []).slice(0, 400)) {
     const row = el('div');
     row.style.cssText = 'display:flex;gap:10px;align-items:center;padding:4px 0;border-bottom:1px solid #f1f5f9;font-size:12px';
     const idCell = el('b', null, it.sku_id);
@@ -396,26 +421,68 @@ function renderCatalogList(items) {
     row.appendChild(title);
     row.appendChild(el('span', null, '进价¥' + it.price));
     row.appendChild(el('span', null, String(it.delivery || '')));
-    row.appendChild(btn('btn btn-ghost btn-sm', '建商品', () => quickGoods(it)));
+    if (built.has(String(it.sku_id))) {
+      row.appendChild(el('span', null, '已建'));
+    } else {
+      row.appendChild(btn('btn btn-ghost btn-sm', '建商品', () => quickGoods(it)));
+    }
     list.appendChild(row);
   }
 }
 function quickGoods(it) {
-  const dup = (goodsCache || []).filter((g) => String(g.supplier_sku_id || '') === String(it.sku_id));
-  if (dup.length) { toast(`sku ${it.sku_id} 已建过商品：${dup[0].name}`); return; }
+  if (builtSkuSet().has(String(it.sku_id))) { toast('这个 SKU 已经建过商品了'); return; }
   openGoodsModal(null);
   $('goodsModalTitle').textContent = '添加商品（来自货源清单）';
-  $('gName').value = (String(it.title || '').slice(0, 40)) || `货源商品 ${it.sku_id}`;
+  $('gName').value = String(it.title || '').slice(0, 40) || `货源商品 ${it.sku_id}`;
   $('gCover').value = '📱';
-  // 默认加价 30% 并取 .9 结尾，可自己改
-  $('gPrice').value = (Math.max(2, Math.ceil(Number(it.price) * 1.3)) - 0.1).toFixed(2);
-  $('gCategory').value = '';
+  $('gPrice').value = retailPrice(it.price, markupPct()).toFixed(2);
+  $('gCategory').value = guessCategory(it.title);
   $('gDesc').value = '货源直发 · 付款后自动发货';
   $('gSupplier').value = String(it.sku_id);
   if ($('gStatus')) $('gStatus').value = '1';
   toast('已自动填好，确认名字和价格后点「保存商品」');
 }
-/* ---------- 事件绑定 ---------- */
+async function goodsPayload(it) {
+  return {
+    name: String(it.title || '').slice(0, 40) || `货源商品 ${it.sku_id}`,
+    cover: '📱',
+    price: Math.round(retailPrice(it.price, markupPct()) * 100),
+    category: guessCategory(it.title),
+    description: '货源直发 · 付款后自动发货',
+    supplier_sku_id: String(it.sku_id),
+    status: 1,
+    sales: 0,
+    created_at: Date.now(),
+  };
+}
+// 批量建：只处理「关键词命中 + 还没建过」的行，逐条插入并实时报进度
+async function bulkGoods() {
+  if (!lastCatalog.length) { toast('先点「拉取对方商品清单」'); return; }
+  const kw = ($('supFilter').value || '').trim().toLowerCase();
+  const built = builtSkuSet();
+  const todo = lastCatalog.filter((it) => !built.has(String(it.sku_id))
+    && (!kw || (String(it.title) + ' ' + it.sku_id + ' ' + (it.delivery || '')).toLowerCase().includes(kw)));
+  if (!todo.length) { toast(kw ? '没有「关键词命中且未建过」的商品' : '清单里的 SKU 都已建好了'); return; }
+  const skip = lastCatalog.filter((it) => String(it.delivery || '') === '人工').length;
+  const msg = `将为 ${todo.length} 个 SKU 建商品（进价 +${Math.round(markupPct() * 100)}% 定价）`
+    + `\n已建过的 ${built.size} 个自动跳过`
+    + (skip ? `\n注意：清单里有 ${skip} 个「人工」发货的，买家要等客服` : '')
+    + '\n\n确定继续？';
+  if (!confirm(msg)) return;
+  const b = document.querySelector('[data-action="bulk-goods"]');
+  if (b) b.disabled = true;
+  let ok = 0; let fail = 0; let firstErr = '';
+  for (let i = 0; i < todo.length; i++) {
+    if ($('supBulkStat')) $('supBulkStat').textContent = `进行中 ${i + 1}/${todo.length}`;
+    const r = await supa.from('goods').insert(await goodsPayload(todo[i]));
+    if (r.error) { fail++; if (!firstErr) firstErr = errText(r.error); } else { ok++; }
+  }
+  if (b) b.disabled = false;
+  if ($('supBulkStat')) $('supBulkStat').textContent = `新建 ${ok}${fail ? '，失败 ' + fail : ''}`;
+  toast(fail ? `完成 ${ok} 条，失败 ${fail} 条：${firstErr}` : `已新建 ${ok} 个商品，去「商品管理」看`);
+  await loadGoodsAdmin();
+  renderCatalogList(lastCatalog);
+}/* ---------- 事件绑定 ---------- */
 function bind() {
   $('loginBtn').addEventListener('click', doLogin);
   $('loginPwd').addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
@@ -431,6 +498,7 @@ function bind() {
     if (a === 'save-site') b.addEventListener('click', saveSite);
     if (a === 'save-supplier') b.addEventListener('click', saveSupplier);
     if (a === 'pull-catalog') b.addEventListener('click', pullCatalog);
+    if (a === 'bulk-goods') b.addEventListener('click', bulkGoods);
   });
   document.querySelectorAll('[data-close]').forEach((b) =>
     b.addEventListener('click', () => $(b.getAttribute('data-close')).classList.remove('show')));
