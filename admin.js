@@ -7,6 +7,7 @@ const CFG = window.FAKA_CONFIG;
 const supa = window.supabase.createClient(CFG.SUPA_URL, CFG.SUPA_KEY);
 
 let goodsCache = [];
+let goodsLoaded = false;
 let lastCatalog = [];
 let orderCache = [];
 
@@ -129,6 +130,7 @@ async function loadGoodsAdmin() {
   const { data, error } = await supa.from('goods').select('*').order('created_at', { ascending: false }).limit(1000);
   if (error) { toast(errText(error)); return; }
   goodsCache = data || [];
+  goodsLoaded = true;
   // 卡密归属一次取回来本地计数：逐行 count 在商品上百个时会把页面卡死
   const cardRows = await supa.from('cards').select('goods_id').eq('status', 0).limit(20000);
   const cardCount = {};
@@ -415,7 +417,17 @@ function catalogFiltered() {
   if (!kw) return lastCatalog;
   return lastCatalog.filter((it) => `${it.sku_id} ${it.title || ''} ${it.delivery || ''}`.toLowerCase().includes(kw));
 }
-function renderCatalogList() {
+// 批量过程中实时把该行翻成「已建」，不然跑几百条时完全看不出进度落在哪
+function markBuilt(skuId) {
+  const row = document.querySelector(`#supCatalogList [data-sku="${skuId}"]`);
+  if (!row || !row.children || !row.children.length) return;
+  const last = row.children[row.children.length - 1];
+  if (last.tagName === 'BUTTON') {
+    const span = el('span', null, '已建');
+    span.style.cssText = 'color:#16a34a';
+    row.replaceChild(span, last);
+  }
+}function renderCatalogList() {
   const list = $('supCatalogList');
   if (!list) return;
   list.textContent = '';
@@ -428,6 +440,7 @@ function renderCatalogList() {
   const built = builtSkuSet();
   for (const it of shown.slice(0, 1000)) {
     const row = el('div');
+    row.setAttribute('data-sku', String(it.sku_id));
     row.style.cssText = 'display:flex;gap:10px;align-items:center;padding:4px 0;border-bottom:1px solid #f1f5f9;font-size:12px';
     const idCell = el('b', null, it.sku_id);
     idCell.style.minWidth = '76px';
@@ -472,6 +485,9 @@ function goodsPayload(it) {
 // 批量建：只处理「关键词命中 + 还没建过」的行，逐条插入并实时报进度
 async function bulkGoods() {
   if (!lastCatalog.length) { toast('先点「拉取对方商品清单」'); return; }
+  // 判重依赖 goodsCache，没加载完就开建会造重复商品
+  if (!goodsLoaded) await loadGoodsAdmin();
+  if (!goodsLoaded) { toast('商品列表没能加载，刷新页面重试'); return; }
   const built = builtSkuSet();
   const todo = catalogFiltered().filter((it) => !built.has(String(it.sku_id)));
   if (!todo.length) { toast('没有「关键词命中且未建过」的商品'); return; }
@@ -487,7 +503,7 @@ async function bulkGoods() {
   for (let i = 0; i < todo.length; i++) {
     if ($('supBulkStat')) $('supBulkStat').textContent = `进行中 ${i + 1}/${todo.length}`;
     const r = await supa.from('goods').insert(goodsPayload(todo[i]));
-    if (r.error) { fail++; if (!firstErr) firstErr = errText(r.error); } else { ok++; }
+    if (r.error) { fail++; if (!firstErr) firstErr = errText(r.error); } else { ok++; markBuilt(todo[i].sku_id); }
   }
   if (b) b.disabled = false;
   if ($('supBulkStat')) $('supBulkStat').textContent = `新建 ${ok}${fail ? '，失败 ' + fail : ''}`;
