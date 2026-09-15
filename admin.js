@@ -158,6 +158,7 @@ function openGoodsModal(g) {
   $('gCategory').value = g ? (g.category || '') : '';
   $('gDesc').value = g ? (g.description || '') : '';
   $('gSupplier').value = g ? (g.supplier_sku_id || '') : '';
+  if ($('gStatus')) $('gStatus').value = g ? String(g.status === 0 ? 0 : 1) : '1';
   $('goodsModal').classList.add('show');
 }
 async function saveGoods() {
@@ -171,6 +172,7 @@ async function saveGoods() {
     category: $('gCategory').value.trim(), description: $('gDesc').value.trim(),
     supplier_sku_id: $('gSupplier').value.trim(),
   };
+  if ($('gStatus')) payload.status = parseInt($('gStatus').value, 10);
   const b = $('saveGoodsBtn'); b.disabled = true;
   try {
     let r;
@@ -356,6 +358,7 @@ async function fnCall(body) {
 async function pullCatalog() {
   const b = document.querySelector('[data-action="pull-catalog"]');
   const box = $('supCatalog');
+  renderCatalogList([]);
   if (b) { b.disabled = true; b.textContent = '拉取中...'; }
   try {
     const data = await fnCall({ action: 'catalog' });
@@ -368,6 +371,7 @@ async function pullCatalog() {
     box.textContent = items.length
       ? 'sku_id | 标题 | 价格 | 库存 | 发货\n' + items.map((it) => `${it.sku_id} | ${it.title} | ¥${it.price} | ${it.stock}${it.delivery ? ' | ' + it.delivery : ''}`).join('\n')
       : '对方暂无在售商品';    toast('已拉取 ' + items.length + ' 条');
+    renderCatalogList(items);
   } catch (e) {
     box.textContent = '';
     toast(String((e && e.message) || e || '请求失败'));
@@ -376,6 +380,41 @@ async function pullCatalog() {
   }
 }
 
+// 清单渲染成可点行：省掉「复制 sku_id → 新建商品 → 逐个粘贴」的手工活
+function renderCatalogList(items) {
+  const list = $('supCatalogList');
+  if (!list) return;
+  list.textContent = '';
+  for (const it of (items || []).slice(0, 300)) {
+    const row = el('div');
+    row.style.cssText = 'display:flex;gap:10px;align-items:center;padding:4px 0;border-bottom:1px solid #f1f5f9;font-size:12px';
+    const idCell = el('b', null, it.sku_id);
+    idCell.style.minWidth = '76px';
+    row.appendChild(idCell);
+    const title = el('span', null, String(it.title || '').slice(0, 40));
+    title.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    row.appendChild(title);
+    row.appendChild(el('span', null, '进价¥' + it.price));
+    row.appendChild(el('span', null, String(it.delivery || '')));
+    row.appendChild(btn('btn btn-ghost btn-sm', '建商品', () => quickGoods(it)));
+    list.appendChild(row);
+  }
+}
+function quickGoods(it) {
+  const dup = (goodsCache || []).filter((g) => String(g.supplier_sku_id || '') === String(it.sku_id));
+  if (dup.length) { toast(`sku ${it.sku_id} 已建过商品：${dup[0].name}`); return; }
+  openGoodsModal(null);
+  $('goodsModalTitle').textContent = '添加商品（来自货源清单）';
+  $('gName').value = (String(it.title || '').slice(0, 40)) || `货源商品 ${it.sku_id}`;
+  $('gCover').value = '📱';
+  // 默认加价 30% 并取 .9 结尾，可自己改
+  $('gPrice').value = (Math.max(2, Math.ceil(Number(it.price) * 1.3)) - 0.1).toFixed(2);
+  $('gCategory').value = '';
+  $('gDesc').value = '货源直发 · 付款后自动发货';
+  $('gSupplier').value = String(it.sku_id);
+  if ($('gStatus')) $('gStatus').value = '1';
+  toast('已自动填好，确认名字和价格后点「保存商品」');
+}
 /* ---------- 事件绑定 ---------- */
 function bind() {
   $('loginBtn').addEventListener('click', doLogin);

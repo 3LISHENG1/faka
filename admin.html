@@ -229,7 +229,7 @@
           <button type="button" class="btn btn-primary" data-action="save-supplier">保存对接参数</button>
           <button type="button" class="btn btn-ghost" data-action="pull-catalog">拉取对方商品清单</button>
           <div class="form-item" style="margin-top:14px"><label>对方商品清单（sku_id | 标题 | 价格 | 库存）</label><textarea id="supCatalog" readonly style="min-height:170px;font-size:12px" placeholder="点上方按钮拉取，直接复制 sku_id 到商品编辑框"></textarea></div>
-          <div class="hint" style="margin-top:14px">⚠️ <b>「商户密钥」不提供输入框，也不允许存进数据库。</b><br>
+          <div class="form-item"><label>想卖哪个？点行末「建商品」直接生成</label><div id="supCatalogList" style="max-height:340px;overflow:auto;border:1px solid #e5e7eb;border-radius:8px;padding:6px 10px"></div></div>          <div class="hint" style="margin-top:14px">⚠️ <b>「商户密钥」不提供输入框，也不允许存进数据库。</b><br>
           admin.html 是 GitHub Pages 上的公开静态页，写进前端或 settings 的明文密钥，任何拿到后台网址的人都能读走；
           dujiao-next 的签名 = HMAC-SHA256(商户密钥)，拿到密钥即可任意刷你的对方余额。
           它只能放在 Supabase Edge Function 的 Secrets 里，由服务端签名，浏览器永远拿不到。配置方法见 README 第 3 步。</div>
