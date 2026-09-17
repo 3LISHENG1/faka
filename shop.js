@@ -376,9 +376,18 @@ const SEC_NAMES = ['商品名称', '商品说明', '商品详情', '商品介绍
   '注意事项', '售后说明', '售后服务', '购买须知', '下单须知', '发货说明', '交付方式', '交付说明', '温馨提示',
   '常见问题', '服务保障', '基本信息', '价格说明', '购买说明', '使用须知'];
 
+// 小标题标记：先记住「整行被 <hN> 或 <p><strong> 包住」的行，那才是对方自己标的标题
+const MARK = String.fromCharCode(0xE000);
+const stripTags = (x) => String(x).replace(/<[^>]+>/g, '').replace(/[*_`]/g, '').trim();
+
 // 对方文案可能是 HTML 或 Markdown，先洗成纯文本；换行保留，前台用 pre-line 显示
 function cleanText(raw) {
-  return String(raw || '')
+  const out = String(raw || '')
+    .replace(/<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi, (m, lvl, inner) => MARK + stripTags(inner) + MARK + String.fromCharCode(10))
+    // 「<b>格式：账号----密码…</b>」这种整行加粗的格式说明，直接归成「账号格式」小节
+    .replace(/<(strong|b)[^>]*>\s*(?:账号|卡密|登录|帐号)?格式[：:]([^<]{1,120})<\/\1>/gi,
+      (m, tag, body) => MARK + '账号格式' + MARK + String.fromCharCode(10) + body)
+    .replace(/<(strong|b)[^>]*>([^<]{1,24})<\/\1>(?=\s*(?:<br|<\/p|\s*$))/gi, (m, tag, inner) => MARK + stripTags(inner) + MARK)
     .replace(/<\s*(br|hr)\s*\/?\s*>/gi, '\n')
     .replace(/<\/\s*(p|div|li|ul|ol|tr|pre|h[1-6])\s*>/gi, '\n')
     .replace(/<[^>]+>/g, '')
@@ -387,14 +396,31 @@ function cleanText(raw) {
     .replace(/&nbsp;/gi, ' ').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
     .replace(/&quot;/gi, '"').replace(/&#39;/gi, String.fromCharCode(39)).replace(/&amp;/gi, '&')
     .replace(/\r\n?/g, String.fromCharCode(10)).replace(/\u00a0/g, ' ')
-    .replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, String.fromCharCode(10, 10, 10)).trim();
+    .replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, String.fromCharCode(10, 10)).trim();
+  // 「卡密格式：账号----密码----2fa」这类纯文本格式行单独提成账号格式小节，正文只留格式本身
+  return out.split(String.fromCharCode(10)).map((line) => {
+    if (line.indexOf(MARK) >= 0) return line;
+    const m = /^#*\s*(?:账号|卡密|登录|帐号)?格式\s*[：:]\s*(\S.{0,119})$/.exec(line);
+    if (!m) return line;
+    return MARK + '账号格式' + MARK + String.fromCharCode(10) + m[1].trim();
+  }).join(String.fromCharCode(10));
 }
 
 // 一行是不是小标题：短、没句读、命中已知词或「XX格式/建议/说明…」这类后缀
 function isHeading(line) {
+  // 带标记的行是对方自己标的标题（<hN> / <p><strong>），放宽到 24 字
+  const marked = new RegExp('^' + MARK + '([\\s\\S]*?)' + MARK + '$').exec(line.trim());
+  if (marked) {
+    const mt = stripTags(marked[1]).replace(/[：:]\s*$/, '').trim();
+    // 整行加粗也可能是被强调的句子（带句读或太长），那种不算小节标题
+    if (!mt || mt.length > 20 || /[。，、；！？,()（）]/.test(mt)) return '';
+    return mt;
+  }
   const t = line.replace(/^#+\s*/, '').replace(/[*_`]/g, '').trim();
   if (!t || t.length > 16) return '';
   if (/[。！？；，,.!?;:]$/.test(t)) return '';
+  // 「绑定信息：支持邮箱或手机号登录」这种「标签：正文」行不是标题，认了会吃掉冒号后面的字
+  if (/[：:]/.test(t) && !/[：:]\s*$/.test(t)) return '';
   const plain = t.replace(/[：:].*$/, '').trim();
   if (SEC_NAMES.indexOf(plain) >= 0) return plain;
   if (/^(以下|如下|详见|参见|请查看|请阅读|注[：:]|解释|备注)/.test(plain)) return '';
@@ -408,20 +434,40 @@ function parseSections(raw) {
   if (!text) return [];
   const out = [];
   let cur = { title: '商品说明', lines: [] };
+  let started = false;   // 出现过真小标题：这种小节即使没正文也要留痕，见下面 keep 的并回处理
   for (const line of text.split(String.fromCharCode(10))) {
     const h = isHeading(line);
     if (h) {
-      if (cur.lines.join('').trim()) out.push(cur);
+      if (started || cur.lines.join('').trim()) out.push(cur);
+      started = true;
       cur = { title: h, lines: [] };
     } else {
-      cur.lines.push(line.replace(/^#+\s*/, '').trim());
+      cur.lines.push(line.replace(/^#+\s*/, '').split(MARK).join('').trim());
     }
   }
-  if (cur.lines.join('').trim()) out.push(cur);
+  if (started || cur.lines.join('').trim()) out.push(cur);
   const flat = out.map((x) => ({ title: x.title, body: x.lines.join(String.fromCharCode(10)).trim() }));
-  // 同名小节合并（对方常出现两段「注意事项」），顺序按第一次出现
-  const merged = new Map();
+  // 格式类小节只留第一行格式说明，后面的正文挪到商品说明，标题不被长句污染
+  const only = [];
   for (const x of flat) {
+    const hit = x.title === '账号格式' || x.title === '卡密格式';
+    const at = hit ? x.body.indexOf(String.fromCharCode(10)) : -1;
+    if (at < 0) { only.push(x); continue; }
+    only.push({ title: x.title, body: x.body.slice(0, at).trim() });
+    const rest = x.body.slice(at + 1).trim();
+    if (rest) only.push({ title: '商品说明', body: rest });
+  }
+  // 同名小节合并（对方常出现两段「注意事项」），顺序按第一次出现
+  const keep = [];
+  for (const x of only) {
+    if (x.body) { keep.push(x); continue; }
+    const lastT = keep.length ? keep[keep.length - 1].title : '';
+    // 只有标题没有正文：并进上一节；但格式小节不收留，另开商品说明，避免污染账号格式
+    if (keep.length && lastT !== '账号格式' && lastT !== '卡密格式') keep[keep.length - 1].body += String.fromCharCode(10) + x.title;
+    else keep.push({ title: '商品说明', body: x.title });
+  }
+  const merged = new Map();
+  for (const x of keep) {
     if (!merged.has(x.title)) merged.set(x.title, x);
     else { const prev = merged.get(x.title); prev.body = prev.body + String.fromCharCode(10) + x.body; }
   }
@@ -561,10 +607,22 @@ function renderDetail() {
   const detail = String(g.detail || '').trim();
   const blocks = [];
   if (desc) blocks.push({ title: '商品说明', body: desc });
+  const extra = [];
   for (const x of parseSections(detail)) {
-    if (x.title === '商品名称') continue;
+    if (x.title === '商品名称') {
+      // 这一节通常就是商品名本身（顶部已显示），但对方常把警告语塞在同一节里，不能丢
+      for (const l of x.body.split(String.fromCharCode(10))) {
+        if (l.trim() && l.trim() !== String(g.name || '').trim()) extra.push(l.trim());
+      }
+      continue;
+    }
     // 详情里也有一段「商品说明」时改叫「商品详情」，别出现两个同名小节
     blocks.push({ title: x.title === '商品说明' && desc ? '商品详情' : x.title, body: x.body });
+  }
+  if (extra.length) {
+    const head = blocks.length && blocks[0].title === '商品说明' ? blocks.shift() : null;
+    const BRK = String.fromCharCode(10);
+    blocks.unshift({ title: '商品说明', body: [head ? head.body : '', extra.join(BRK)].filter(Boolean).join(BRK + BRK) });
   }
   if (!blocks.length) blocks.push({ title: '商品说明', body: '卖家暂未填写说明' });
   for (const x of blocks) card.appendChild(infoBlock(x.title, x.body, true));
