@@ -68,6 +68,7 @@ async function loadSite() {
   const { data, error } = await supa.rpc('rpc_site_config');
   if (error) { console.error(error); return; }
   $('siteName').textContent = data.siteName || '发卡商城';
+  try { localStorage.setItem('FAKA_SITE_NAME', $('siteName').textContent); } catch (e) { /* 无痕模式忽略 */ }
   $('announcement').textContent = data.announcement || '欢迎光临本店！';
   document.title = (data.siteName || '发卡商城') + ' - 自动发卡，秒到账';
 }
@@ -197,13 +198,31 @@ function paint() {
   }
 }
 
-/* ---------- 货源代发：配了对方 SKU 的商品不受本店卡密库存限制 ---------- */
+/* ---------- 库存：自营看本店卡密，代发看对方库存（rpc_catalog 一并带出） ---------- */
 function supplierSku(g) {
   return String((g && g.supplier_sku_id) || '').trim();
 }
 
+// supplier_stock：-1=不限量/未知，0=缺货；supplier_online=false = 对方已停售。
+// 进价不下发到浏览器，这里只拿得到「还有多少」和「能不能买」。
+function stockInfo(g) {
+  if (!supplierSku(g)) {
+    const n = Number(g.stock) || 0;
+    return { text: n > 0 ? `库存 ${n} 张` : '⚠️ 已售罄', low: n <= 3, sellable: n > 0, max: Math.min(n, 10) };
+  }
+  if (!g.supplier_synced) {
+    return { text: '货源直发 · 付款后自动发货', low: false, sellable: true, max: 10 };
+  }
+  if (g.supplier_online === false) return { text: '⚠️ 货源已下架', low: true, sellable: false, max: 0 };
+  const q = Number(g.supplier_stock);
+  if (q === 0) return { text: '⚠️ 暂时缺货', low: true, sellable: false, max: 0 };
+  if (q > 0) {
+    return { text: q <= 3 ? `仅剩 ${q} 件 · 货源直发` : `库存 ${q} 件 · 货源直发`, low: q <= 3, sellable: true, max: Math.min(q, 10) };
+  }
+  return { text: '库存充足 · 货源直发', low: false, sellable: true, max: 10 };
+}
+
 function renderCard(g) {
-  const stock = Number(g.stock) || 0;
   const box = el('div', 'goods-card');
 
   if (g.category) box.appendChild(el('span', 'goods-category', g.category));
@@ -219,17 +238,11 @@ function renderCard(g) {
   meta.appendChild(el('span', 'goods-sold', `已售 ${Number(g.sales) || 0}`));
   box.appendChild(meta);
 
-  const sku = supplierSku(g);
-  if (sku) {
-    box.appendChild(el('div', 'goods-stock', '货源直发 · 付款后自动发货'));
-  } else {
-    box.appendChild(el('div', 'goods-stock' + (stock <= 3 ? ' low' : ''),
-      stock > 0 ? `库存 ${stock} 张` : '⚠️ 已售罄'));
-  }
+  const info = stockInfo(g);
+  box.appendChild(el('div', 'goods-stock' + (info.low ? ' low' : ''), info.text));
 
-  const btn = el('button', 'btn btn-primary btn-block',
-    (sku || stock > 0) ? '立即购买' : '暂时缺货');
-  btn.disabled = !sku && stock <= 0;
+  const btn = el('button', 'btn btn-primary btn-block', info.sellable ? '立即购买' : '暂时缺货');
+  btn.disabled = !info.sellable;
   btn.type = 'button';
   btn.addEventListener('click', () => openBuy(g));
   box.appendChild(btn);
@@ -250,18 +263,22 @@ function openBuy(g) {
   info.appendChild(el('div', 'sub', `单价 ¥${money(g.price)} / 张`));
   sum.appendChild(info);
   const hint = $('buyStockHint');
+  const sinfo = stockInfo(g);
   if (hint) hint.textContent = supplierSku(g)
-    ? '（货源直发，单次 1~10 张）'
+    ? (sinfo.max >= 10 ? '（货源直发，单次 1~10 件）' : `（货源仅剩 ${sinfo.max} 件，单次最多 ${sinfo.max} 件）`)
     : `（剩余库存 ${Number(g.stock) || 0} 张）`;
   updateTotal();
   show('buyModal');
   $('buyEmail').focus();
 }
 
+// 单次最多买几件：代发商品受对方库存限制（以前按本店卡密算，代发商品恒为 1 件）
+function maxQty(g) {
+  return Math.max(1, Math.min(10, stockInfo(g).max || 1));
+}
 function changeQty(d) {
   if (!current) return;
-  const stock = Number(current.stock) || 0;
-  qty = Math.min(Math.max(1, qty + d), Math.max(1, Math.min(stock, 10)));
+  qty = Math.min(Math.max(1, qty + d), maxQty(current));
   $('qtyNum').textContent = String(qty);
   updateTotal();
 }

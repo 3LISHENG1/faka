@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- CSP 与站点 _headers 逐指令一致：脚本只允许同源，所以逻辑全在 totp.js 里，本页没有任何内联脚本 -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://tbrndvwxwvtvyjpsqnuj.supabase.co; object-src 'none'; base-uri 'self'; form-action 'none'; upgrade-insecure-requests">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<meta name="robots" content="noindex">
+<title>2FA 验证码 - 发卡商城</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root { --primary:#635bff; --primary-dark:#5343d9; --bg:#f6f7fb; --card:#fff; --text:#1a1f36; --text-sub:#6b7280; --border:#e8e9f2; --success:#16a34a; --danger:#ef4444; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  .container { max-width: 760px; margin: 0 auto; padding: 0 20px; }
+  header { background: rgba(255,255,255,.9); backdrop-filter: blur(10px); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 100; }
+  .header-inner { display: flex; align-items: center; justify-content: space-between; height: 64px; }
+  .logo { font-size: 20px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+  .logo .logo-icon { width: 34px; height: 34px; border-radius: 10px; background: linear-gradient(135deg, #7a6cff, var(--primary)); display: flex; align-items: center; justify-content: center; color: #fff; font-size: 18px; }
+  .header-actions { display: flex; gap: 10px; }
+  .btn { border: none; cursor: pointer; border-radius: 10px; font-size: 14px; padding: 9px 16px; transition: all .2s; font-family: inherit; text-decoration: none; display: inline-block; }
+  .btn-ghost { background: #fff; color: var(--text); border: 1px solid var(--border); }
+  .btn-ghost:hover { border-color: var(--primary); color: var(--primary); }
+  .btn-primary { background: var(--primary); color: #fff; }
+  .btn-primary:hover { background: var(--primary-dark); }
+  .btn-primary:disabled { opacity: .55; cursor: not-allowed; }
+  .page-head { text-align: center; padding: 34px 0 6px; }
+  .page-head h1 { font-size: 24px; }
+  .page-head p { color: var(--text-sub); font-size: 14px; margin-top: 8px; }
+  .tk-card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 22px; margin-top: 18px; box-shadow: 0 6px 24px rgba(20,22,40,.05); }
+  .form-item { margin-bottom: 14px; }
+  label { display: block; font-size: 13px; color: var(--text-sub); margin-bottom: 6px; font-weight: 600; }
+  input, select { font-family: inherit; font-size: 14px; color: var(--text); background: #fff; border: 1.5px solid var(--border); border-radius: 11px; padding: 11px 14px; outline: none; width: 100%; }
+  input:focus, select:focus { border-color: var(--primary); }
+  .hint { font-size: 12px; color: var(--text-sub); line-height: 1.7; }
+  .warn { display: none; background: #fff1f2; border: 1px solid #fecdd3; color: #be123c; border-radius: 12px; padding: 12px 14px; font-size: 13px; margin-bottom: 14px; line-height: 1.6; }
+  .tk-adv { display: none; gap: 10px; flex-wrap: wrap; margin: 4px 0 14px; }
+  .tk-adv .form-item { flex: 1 1 150px; margin-bottom: 0; }
+  .tk-mini { border: 1px solid var(--border); background: #fff; color: var(--text-sub); border-radius: 9px; font-size: 12px; padding: 5px 10px; cursor: pointer; font-family: inherit; }
+  .tk-mini:hover { border-color: var(--primary); color: var(--primary); }
+  .tk-danger:hover { border-color: var(--danger); color: var(--danger); }
+  .tk-live { display: none; align-items: center; gap: 16px; margin: 18px 0 6px; padding: 18px; border-radius: 14px; background: linear-gradient(135deg, #eef0ff, #f6ecff); border: 1px solid #e3e4ff; }
+  .tk-live.on { display: flex; }
+  .tk-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 40px; font-weight: 700; letter-spacing: 2px; color: var(--primary); cursor: pointer; line-height: 1.1; }
+  .tk-code small { display: block; font-size: 12px; letter-spacing: 0; color: var(--text-sub); font-weight: 500; font-family: inherit; }
+  .tk-ring { position: relative; display: inline-flex; align-items: center; justify-content: center; }
+  .tk-ring .ring-bg { fill: none; stroke: #e3e4ff; stroke-width: 4; }
+  .tk-ring .ring-fg { fill: none; stroke: var(--primary); stroke-width: 4; stroke-linecap: round; transition: stroke-dashoffset .4s linear, stroke .3s; }
+  .tk-ring b { position: absolute; font-size: 11px; color: var(--text-sub); font-weight: 600; }
+  .tk-err { display: none; color: var(--danger); font-size: 13px; margin-top: 8px; }
+  .tk-list-head { display: flex; align-items: center; justify-content: space-between; margin: 26px 0 4px; }
+  .tk-list-head h2 { font-size: 16px; }
+  .tk-item { display: flex; align-items: center; gap: 12px; padding: 14px 0; border-top: 1px solid var(--border); }
+  .tk-item-main { flex: 1; min-width: 0; }
+  .tk-item-name { font-size: 13px; font-weight: 700; }
+  .tk-item-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 26px; font-weight: 700; color: var(--primary); cursor: pointer; letter-spacing: 1px; }
+  .tk-item-code.bad { color: var(--danger); font-size: 14px; font-family: inherit; cursor: default; }
+  .tk-item-secret { font-size: 11px; color: var(--text-sub); font-family: ui-monospace, Menlo, Consolas, monospace; word-break: break-all; margin-top: 2px; }
+  .tk-item-side { width: 44px; text-align: center; }
+  .tk-item-side .tk-ring { position: relative; display: inline-flex; }
+  .tk-item-ops { display: flex; flex-direction: column; gap: 6px; }
+  .tk-empty { color: var(--text-sub); font-size: 13px; padding: 14px 0; }
+  .tk-tips { background: #f8fafc; border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin-top: 18px; }
+  .tk-tips h3 { font-size: 14px; margin-bottom: 8px; }
+  .tk-tips ul { margin-left: 18px; }
+  .tk-tips li { font-size: 12.5px; color: var(--text-sub); line-height: 1.9; }
+  .tk-toast { position: fixed; left: 50%; bottom: 34px; transform: translateX(-50%) translateY(20px); background: rgba(26,31,54,.92); color: #fff; padding: 10px 18px; border-radius: 10px; font-size: 13px; opacity: 0; pointer-events: none; transition: all .25s; z-index: 300; }
+  .tk-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  footer { text-align: center; color: #b0b4c3; font-size: 12px; padding: 26px 0 40px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="container header-inner" style="max-width:760px">
+    <div class="logo"><span class="logo-icon">🛡️</span><span>2FA 验证码</span><span id="tkSiteName" style="font-size:13px;font-weight:500;color:var(--text-sub)"></span></div>
+    <div class="header-actions">
+      <a class="btn btn-ghost" href="index.html" id="tkHome">← 购物中心</a>
+    </div>
+  </div>
+</header>
+
+<div class="container">
+  <div class="page-head">
+    <h1>2FA 验证码生成器</h1>
+    <p>输入您的 2FA 密钥，即可获取 6 位验证码</p>
+  </div>
+
+  <div class="tk-card">
+    <div class="warn" id="tkWarn"></div>
+
+    <div class="form-item">
+      <label for="tkSecret">密钥</label>
+      <input type="text" id="tkSecret" maxlength="400" autocomplete="off" autocapitalize="characters" spellcheck="false"
+        placeholder="请输入您的2FA密钥（Base32格式），也可直接粘贴 otpauth:// 链接">
+      <div class="hint">密钥通常是 16 位或 32 位的 Base32 字符串（A-Z 和 2-7），可从您的 2FA 应用中获取。</div>
+    </div>
+
+    <div class="form-item">
+      <label for="tkName">备注名称（可选，保存时用来区分）</label>
+      <input type="text" id="tkName" maxlength="40" autocomplete="off" placeholder="例如：Gmail 主号 / 对方货源后台">
+    </div>
+
+    <button type="button" class="tk-mini" id="tkAdvBtn">高级选项 ▾</button>
+    <div class="tk-adv" id="tkAdv">
+      <div class="form-item"><label for="tkDigits">位数</label>
+        <select id="tkDigits"><option value="6">6 位</option><option value="8">8 位</option></select></div>
+      <div class="form-item"><label for="tkPeriod">刷新周期</label>
+        <select id="tkPeriod"><option value="30">30 秒</option><option value="60">60 秒</option><option value="15">15 秒</option></select></div>
+      <div class="form-item"><label for="tkAlgo">算法</label>
+        <select id="tkAlgo"><option value="SHA-1">SHA-1（绝大多数）</option><option value="SHA-256">SHA-256</option><option value="SHA-512">SHA-512</option></select></div>
+    </div>
+
+    <button type="button" class="btn btn-primary" id="tkSaveBtn" disabled>保存2FA</button>
+
+    <div class="tk-live" id="tkLive">
+      <span class="tk-ring">
+        <svg viewBox="0 0 44 44" width="44" height="44">
+          <circle class="ring-bg" cx="22" cy="22" r="19"></circle>
+          <circle class="ring-fg" id="tkLiveRing" cx="22" cy="22" r="19" transform="rotate(-90 22 22)"></circle>
+        </svg>
+        <b id="tkLiveSecs"></b>
+      </span>
+      <div class="tk-code" id="tkLiveWrap" title="点击复制" style="visibility:hidden"><span id="tkLiveCode"></span><small>点击复制</small></div>
+    </div>
+    <div class="tk-err" id="tkLiveErr"></div>
+
+    <div class="tk-list-head">
+      <h2>已保存的密钥</h2>
+      <button type="button" class="tk-mini tk-danger" id="tkClearBtn" style="display:none">清除本机全部</button>
+    </div>
+    <div id="tkList"></div>
+
+    <div class="tk-tips">
+      <h3>使用说明</h3>
+      <ul>
+        <li>验证码每 30 秒自动刷新一次，剩余时间不足 5 秒时圆环变红。</li>
+        <li><b>密钥仅在前端计算，不会上传到任何服务器</b>：本页不请求接口，也不发任何网络请求。</li>
+        <li>点击验证码即可快速复制。</li>
+        <li>点「保存2FA」可长期管理多个密钥，密钥存在<b>本机浏览器</b>（localStorage）里。</li>
+        <li>兼容所有标准 TOTP 应用：Google Authenticator、Microsoft Authenticator、Telegram 等。</li>
+        <li>换电脑、换浏览器、清缓存、用无痕模式，保存的密钥都会不见 —— 请同时在手机验证器里留一份备份。</li>
+        <li>公用电脑不要保存：别人打开同一浏览器就能看到验证码。用完点「清除本机全部」。</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<footer>本站商品均为虚拟商品，一经售出概不退换</footer>
+<div class="tk-toast" id="tkToast"></div>
+
+<script src="totp.js"></script>
+</body>
+</html>
