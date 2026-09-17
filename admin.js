@@ -127,34 +127,102 @@ async function loadDashboard() {
 }
 
 /* ---------- 商品 ---------- */
+let goodsCardCount = {};
+
+// 库存列：代发商品显示「对方库存 + 进价/毛利」，自营商品显示本店未售出卡密数。
+// 以前这一列只数卡密，代发商品本店卡密恒为 0，看起来就像没有库存。
+function stockCell(g, ownCount) {
+  const sku = String(g.supplier_sku_id || "").trim();
+  if (!sku) return el("td", null, String(ownCount || 0));
+  const td = el("td");
+  const q = Number(g.supplier_stock);
+  const online = g.supplier_online !== false;
+  let text = "不限量";
+  let color = "#16a34a";
+  if (!online) { text = "对方下架"; color = "#dc2626"; }
+  else if (q === 0) { text = "缺货"; color = "#dc2626"; }
+  else if (q > 0) { text = "剩 " + q; color = q <= 5 ? "#d97706" : "#16a34a"; }
+  const big = el("b", null, text);
+  big.style.cssText = "color:" + color + ";font-weight:700";
+  td.appendChild(big);
+  const cost = Number(g.supplier_cost) || 0;
+  const price = Number(g.price) || 0;
+  const tip = (cost > 0 ? `进价¥${money(cost)} · 一单赚¥${money(price - cost)}` : "进价未同步")
+    + ` · SKU ${sku}`;
+  const small = el("span", null, tip);
+  small.style.cssText = "display:block;font-size:11px;color:"
+    + (cost > 0 && price < cost ? "#dc2626" : "#94a3b8");
+  td.appendChild(small);
+  return td;
+}
+
+function goodsFilteredList() {
+  const kw = (($("goodsFilter") && $("goodsFilter").value) || "").trim().toLowerCase();
+  const fk = ($("goodsStockFilter") && $("goodsStockFilter").value) || "";
+  return (goodsCache || []).filter((g) => {
+    const sku = String(g.supplier_sku_id || "").trim();
+    const q = Number(g.supplier_stock);
+    if (fk === "drop" && !sku) return false;
+    if (fk === "own" && sku) return false;
+    if (fk === "oos" && !(sku && (q === 0 || g.supplier_online === false))) return false;
+    if (fk === "low" && !(sku && q > 0 && q <= 5)) return false;
+    if (!kw) return true;
+    return `${g.name || ""} ${g.category || ""} ${sku}`.toLowerCase().includes(kw);
+  });
+}
+
+function renderGoodsAdmin() {
+  const tbody = document.querySelector("#goodsTable tbody");
+  if (!tbody) return;
+  tbody.textContent = "";
+  const all = goodsCache || [];
+  const list = goodsFilteredList();
+  const drop = all.filter((g) => String(g.supplier_sku_id || "").trim()).length;
+  const stat = $("goodsStat");
+  if (stat) {
+    stat.textContent = (list.length === all.length ? `共 ${all.length} 个商品` : `筛出 ${list.length} / 共 ${all.length} 个`)
+      + `（代发 ${drop} · 本店卡密 ${all.length - drop}）`;
+  }
+  $("goodsEmpty").textContent = all.length ? "没有符合筛选条件的商品" : "还没有商品";
+  $("goodsEmpty").style.display = list.length ? "none" : "block";
+  for (const g of list.slice(0, 2000)) {
+    const sku = String(g.supplier_sku_id || "").trim();
+    const tr = el("tr");
+    tr.appendChild(el("td", null, (g.cover || "🎁") + " " + g.name));
+    tr.appendChild(el("td", null, g.category || "-"));
+    tr.appendChild(el("td", null, "¥" + money(g.price)));
+    tr.appendChild(stockCell(g, goodsCardCount[g.id] || 0));
+    tr.appendChild(el("td", null, String(g.sales || 0)));
+    const autoOff = Boolean(sku) && g.supplier_auto_off === true;
+    const st = el("td", null, g.status === 1 ? "上架中" : (autoOff ? "缺货自动下架" : "已下架"));
+    if (g.status !== 1) st.style.color = autoOff ? "#dc2626" : "#94a3b8";
+    tr.appendChild(st);
+    const ops = el("td");
+    ops.appendChild(btn("btn btn-ghost btn-sm", "编辑", () => openGoodsModal(g)));
+    ops.appendChild(document.createTextNode(" "));
+    ops.appendChild(btn("btn btn-danger btn-sm", "删除", () => deleteGoods(g)));
+    tr.appendChild(ops);
+    tbody.appendChild(tr);
+  }
+  if (list.length > 2000) {
+    const tr = el("tr");
+    const td = el("td", null, `…… 还有 ${list.length - 2000} 个没显示，用上方搜索缩小范围`);
+    td.colSpan = 7;
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  }
+}
+
 async function loadGoodsAdmin() {
-  const { data, error } = await supa.from('goods').select('*').order('created_at', { ascending: false }).limit(3000);
+  const { data, error } = await supa.from("goods").select("*").order("created_at", { ascending: false }).limit(3000);
   if (error) { toast(errText(error)); return; }
   goodsCache = data || [];
   goodsLoaded = true;
   // 卡密归属一次取回来本地计数：逐行 count 在商品上百个时会把页面卡死
-  const cardRows = await supa.from('cards').select('goods_id').eq('status', 0).limit(20000);
-  const cardCount = {};
-  for (const c of cardRows.data || []) cardCount[c.goods_id] = (cardCount[c.goods_id] || 0) + 1;
-  const tbody = document.querySelector('#goodsTable tbody');
-  tbody.textContent = '';
-  $('goodsEmpty').style.display = goodsCache.length ? 'none' : 'block';
-  for (const g of goodsCache) {
-    const count = cardCount[g.id] || 0;
-    const tr = el('tr');
-    tr.appendChild(el('td', null, (g.cover || '🎁') + ' ' + g.name));
-    tr.appendChild(el('td', null, g.category || '-'));
-    tr.appendChild(el('td', null, '¥' + money(g.price)));
-    tr.appendChild(el('td', null, String(count || 0)));
-    tr.appendChild(el('td', null, String(g.sales || 0)));
-    tr.appendChild(el('td', null, g.status === 1 ? '上架中' : '已下架'));
-    const ops = el('td');
-    ops.appendChild(btn('btn btn-ghost btn-sm', '编辑', () => openGoodsModal(g)));
-    ops.appendChild(document.createTextNode(' '));
-    ops.appendChild(btn('btn btn-danger btn-sm', '删除', () => deleteGoods(g)));
-    tr.appendChild(ops);
-    tbody.appendChild(tr);
-  }
+  const cardRows = await supa.from("cards").select("goods_id").eq("status", 0).limit(20000);
+  goodsCardCount = {};
+  for (const c of cardRows.data || []) goodsCardCount[c.goods_id] = (goodsCardCount[c.goods_id] || 0) + 1;
+  renderGoodsAdmin();
   loadGoodsForSelect();
 }
 function openGoodsModal(g) {
@@ -342,7 +410,10 @@ async function loadSupplier() {
       if (!a.error) oos = a.count || 0;
       if (!b2.error) off = b2.count || 0;
     } catch (e) { /* 新字段还没建时忽略 */ }
-    lines.push('📊 对方缺货 ' + oos + ' 个｜系统自动下架 ' + off + ' 个｜' + (Number(c.sync_page) > 0 ? '库存扫描进行中（第 ' + c.sync_page + ' 页）' : '库存已扫完一轮'));
+    const scanned = Number(c.sync_page) > 0
+      ? '库存扫描进行中（第 ' + c.sync_page + ' 页）'
+      : (Number(c.last_sync_at) ? '库存已扫完一轮' : '还没同步过库存，点「同步库存与进价」');
+    lines.push('📊 对方缺货 ' + oos + ' 个｜系统自动下架 ' + off + ' 个｜' + scanned);
     alert.textContent = lines.join('\n');
     alert.style.display = 'block';
     alert.style.borderLeft = c.paused_reason ? '3px solid #dc2626' : '3px solid #6366f1';
@@ -396,7 +467,8 @@ async function syncStock() {
       if (stat) stat.textContent = '同步中… 第 ' + i + ' 页';
       const data = await fnCall({ action: 'sync' });
       if (!data || data.ok !== true) throw new Error((data && data.error_message) || '返回异常');
-      const s = data.sync || {};
+      if (!data.sync) throw new Error("函数没返回同步结果：多半是 Edge Function 还是旧版，按 README 第 5 步重新粘贴部署");
+      const s = data.sync;
       if (!s.ok) throw new Error(s.error_message || '同步中断');
       if (s.done) { if (stat) stat.textContent = s.note || '同步完成'; toast('库存与进价同步完成'); break; }
     }
@@ -665,6 +737,10 @@ function bind() {
     if (a === 'bulk-goods') b.addEventListener('click', bulkGoods);
   });
   const sf = $('supFilter');
+  for (const id of ['goodsFilter', 'goodsStockFilter']) {
+    const n = $(id);
+    if (n) n.addEventListener(id === 'goodsFilter' ? 'input' : 'change', () => renderGoodsAdmin());
+  }
   if (sf) sf.addEventListener('input', renderCatalogList);
   document.querySelectorAll('[data-close]').forEach((b) =>
     b.addEventListener('click', () => $(b.getAttribute('data-close')).classList.remove('show')));
