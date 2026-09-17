@@ -498,8 +498,13 @@ async function syncDesc() {
   try {
     const data = await fnCall({ action: 'syncdesc' });
     if (!data || data.ok !== true) throw new Error((data && data.error_message) || '返回异常：多半是 Edge Function 还是旧版，按 README 第 5 步重新粘贴部署');
-    if (stat) stat.textContent = data.note;
-    toast(data.note);
+    const wrote = (Number(data.applied_description) || 0) + (Number(data.applied_detail) || 0);
+    const msg = '本次写入：说明 ' + (data.applied_description || 0) + ' 条、详情 ' + (data.applied_detail || 0) + ' 条'
+      + '（对方有文案 ' + (data.with_text || 0) + ' / 共 ' + (data.skus || 0) + ' 个 SKU）'
+      + (wrote === 0 ? NL + '没变化 = 之前已经同步过了，重复点不会覆盖，正常。' : '');
+    if (stat) stat.textContent = msg;
+    toast(wrote === 0 ? '已经同步过了，无需重复' : msg.replace(NL, ' '));
+    if (data.truncated) toast('⚠️ 对方商品没翻完，可能有漏的，稍后再点一次');
   } catch (e) {
     if (stat) stat.textContent = '失败：' + e.message;
     toast('同步说明失败：' + e.message);

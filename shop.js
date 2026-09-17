@@ -372,8 +372,9 @@ function infoBlock(label, text, pre) {
   return box;
 }
 
-const SEC_NAMES = ['商品说明', '商品详情', '账号格式', '使用建议', '使用说明', '注意事项', '售后说明',
-  '购买须知', '下单须知', '发货说明', '交付方式', '温馨提示', '常见问题', '服务保障'];
+const SEC_NAMES = ['商品名称', '商品说明', '商品详情', '商品介绍', '产品介绍', '账号格式', '卡密格式', '使用建议', '使用说明',
+  '注意事项', '售后说明', '售后服务', '购买须知', '下单须知', '发货说明', '交付方式', '交付说明', '温馨提示',
+  '常见问题', '服务保障', '基本信息', '价格说明', '购买说明', '使用须知'];
 
 // 对方文案可能是 HTML 或 Markdown，先洗成纯文本；换行保留，前台用 pre-line 显示
 function cleanText(raw) {
@@ -394,10 +395,11 @@ function isHeading(line) {
   const t = line.replace(/^#+\s*/, '').replace(/[*_`]/g, '').trim();
   if (!t || t.length > 16) return '';
   if (/[。！？；，,.!?;:]$/.test(t)) return '';
-  const plain = t.replace(/[：:]\s*$/, '');
+  const plain = t.replace(/[：:].*$/, '').trim();
   if (SEC_NAMES.indexOf(plain) >= 0) return plain;
-  if (/^[一-龥A-Za-z0-9（）()、/ +&-]{2,16}$/.test(plain)
-    && /(格式|建议|说明|须知|事项|提示|问题|保障|规则|要求|流程|方式|售后)$/.test(plain)) return plain;
+  if (/^(以下|如下|详见|参见|请查看|请阅读|注[：:]|解释|备注)/.test(plain)) return '';
+  if (/^[一-龥A-Za-z0-9（）()、/ +&-]{2,8}$/.test(plain)
+    && /(格式|建议|说明|须知|事项|提示|问题|保障|规则|要求|流程|方式|售后|介绍|详情|描述|信息|优势|特点)$/.test(plain)) return plain;
   return '';
 }
 
@@ -416,7 +418,14 @@ function parseSections(raw) {
     }
   }
   if (cur.lines.join('').trim()) out.push(cur);
-  return out.map((x) => ({ title: x.title, body: x.lines.join(String.fromCharCode(10)).trim() }));
+  const flat = out.map((x) => ({ title: x.title, body: x.lines.join(String.fromCharCode(10)).trim() }));
+  // 同名小节合并（对方常出现两段「注意事项」），顺序按第一次出现
+  const merged = new Map();
+  for (const x of flat) {
+    if (!merged.has(x.title)) merged.set(x.title, x);
+    else { const prev = merged.get(x.title); prev.body = prev.body + String.fromCharCode(10) + x.body; }
+  }
+  return [...merged.values()];
 }
 
 /* ---------- 商品详情页：一个商品一个独立页面，地址是 #/g/<id> ---------- */
@@ -547,7 +556,8 @@ function renderDetail() {
   const card = el('div', 'dcard');
   card.appendChild(el('h3', null, '商品介绍'));
   card.appendChild(infoBlock('商品名称', String(g.name || '')));
-  const desc = String(g.description || '').trim();
+  let desc = String(g.description || '').trim();
+  if (desc === '货源直发 · 付款后自动发货') desc = '';   // 批量建商品留下的占位文案，不是真说明
   const detail = String(g.detail || '').trim();
   const blocks = [];
   if (desc) blocks.push({ title: '商品说明', body: desc });
