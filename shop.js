@@ -86,7 +86,7 @@ async function loadCatalog() {
   }
   catalog = Array.isArray(data) ? data : [];
   shown = PAGE_SIZE;
-  paint();
+  route();
 }
 
 /* ---------- 分类 / 搜索 / 排序 / 分页 ----------
@@ -98,7 +98,8 @@ let catKey = '';
 let keyword = '';
 let sortKey = 'new';
 let viewMode = 'list';   // list = 分类表格（照货源站那种排布，默认）；grid = 卡片
-let infoCurrent = null;  // 「商品介绍」弹窗里正在看的商品
+let detailId = 0;        // 商品详情页 #/g/<id> 当前看的商品
+let dQty = 1;            // 详情页里选的数量
 
 function loadViewMode() {
   try { viewMode = localStorage.getItem('FAKA_VIEW') === 'grid' ? 'grid' : 'list'; }
@@ -228,7 +229,7 @@ function renderRow(g, icon) {
   const link = el('button', 'row-name', g.name);
   link.type = 'button';
   link.title = '查看商品介绍';
-  link.addEventListener('click', () => openInfo(g));
+  link.addEventListener('click', () => goDetail(g));
   inbox.appendChild(link);
   cell.appendChild(inbox);
   tr.appendChild(cell);
@@ -337,7 +338,11 @@ function renderCard(g) {
 
   if (g.category) box.appendChild(el('span', 'goods-category', g.category));
   box.appendChild(el('div', 'goods-cover', g.cover || '🎁'));
-  box.appendChild(el('div', 'goods-name', g.name));
+  const nm = el('div', 'goods-name', g.name);
+  nm.title = '查看商品详情';
+  nm.style.cursor = 'pointer';
+  nm.addEventListener('click', () => goDetail(g));
+  box.appendChild(nm);
   box.appendChild(el('div', 'goods-desc', g.description || '暂无介绍'));
 
   const meta = el('div', 'goods-meta');
@@ -359,41 +364,211 @@ function renderCard(g) {
   return box;
 }
 
-/* ---------- 商品介绍（点商品名打开，照货源站那一版排布） ---------- */
+/* ---------- 商品介绍：长文案自动按小节拆（账号格式 / 使用建议 / 注意事项 / 售后说明 …） ---------- */
 function infoBlock(label, text, pre) {
   const box = el('div', 'info-block');
   box.appendChild(el('div', 'info-label', label));
   box.appendChild(el('div', 'info-value' + (pre ? ' pre' : ''), text));
   return box;
 }
-function openInfo(g) {
-  infoCurrent = g;
-  const body = $('infoBody');
-  body.textContent = '';
-  const sku = supplierSku(g);
-  const st = stockCellText(g);
-  body.appendChild(infoBlock('商品名称', String(g.name || '')));
 
-  body.appendChild(infoBlock('商品说明', String(g.description || '').trim() || '卖家暂未填写说明', true));
-  body.appendChild(infoBlock('发货方式', sku
-    ? '货源直发：付款后系统自动向货源方下单，卡密回传后发到你的邮箱'
-    : '本店卡密：付款后立即发放'));
-  body.appendChild(infoBlock('当前库存', st.text === '不限量' ? '货源不限量，随时可发' : (sku ? st.text : st.text + ' 张')));
-  body.appendChild(infoBlock('已售', (Number(g.sales) || 0) + ' 件'));
-  body.appendChild(infoBlock('购买须知', '虚拟商品一经发出概不退换；单次可买 1~10 件，卡密会发到下单邮箱，也可在「订单查询」用订单号 + 邮箱随时查看。'));
+const SEC_NAMES = ['商品说明', '商品详情', '账号格式', '使用建议', '使用说明', '注意事项', '售后说明',
+  '购买须知', '下单须知', '发货说明', '交付方式', '温馨提示', '常见问题', '服务保障'];
 
-  $('infoPrice').textContent = money(g.price);
-  const ok = stockInfo(g).sellable;
-  $('infoBuyBtn').disabled = !ok;
-  $('infoBuyBtn').textContent = ok ? '立即购买' : '暂时缺货';
-  show('infoModal');
+// 对方文案可能是 HTML 或 Markdown，先洗成纯文本；换行保留，前台用 pre-line 显示
+function cleanText(raw) {
+  return String(raw || '')
+    .replace(/<\s*(br|hr)\s*\/?\s*>/gi, '\n')
+    .replace(/<\/\s*(p|div|li|ul|ol|tr|pre|h[1-6])\s*>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/\*\*([^*]+)\*\*/g, '$1').replace(/__([^_]+)__/g, '$1')
+    .replace(/\x60([^\x60]+)\x60/g, '$1')
+    .replace(/&nbsp;/gi, ' ').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"').replace(/&#39;/gi, String.fromCharCode(39)).replace(/&amp;/gi, '&')
+    .replace(/\r\n?/g, String.fromCharCode(10)).replace(/\u00a0/g, ' ')
+    .replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, String.fromCharCode(10, 10, 10)).trim();
 }
 
+// 一行是不是小标题：短、没句读、命中已知词或「XX格式/建议/说明…」这类后缀
+function isHeading(line) {
+  const t = line.replace(/^#+\s*/, '').replace(/[*_`]/g, '').trim();
+  if (!t || t.length > 16) return '';
+  if (/[。！？；，,.!?;:]$/.test(t)) return '';
+  const plain = t.replace(/[：:]\s*$/, '');
+  if (SEC_NAMES.indexOf(plain) >= 0) return plain;
+  if (/^[一-龥A-Za-z0-9（）()、/ +&-]{2,16}$/.test(plain)
+    && /(格式|建议|说明|须知|事项|提示|问题|保障|规则|要求|流程|方式|售后)$/.test(plain)) return plain;
+  return '';
+}
+
+function parseSections(raw) {
+  const text = cleanText(raw);
+  if (!text) return [];
+  const out = [];
+  let cur = { title: '商品说明', lines: [] };
+  for (const line of text.split(String.fromCharCode(10))) {
+    const h = isHeading(line);
+    if (h) {
+      if (cur.lines.join('').trim()) out.push(cur);
+      cur = { title: h, lines: [] };
+    } else {
+      cur.lines.push(line.replace(/^#+\s*/, '').trim());
+    }
+  }
+  if (cur.lines.join('').trim()) out.push(cur);
+  return out.map((x) => ({ title: x.title, body: x.lines.join(String.fromCharCode(10)).trim() }));
+}
+
+/* ---------- 商品详情页：一个商品一个独立页面，地址是 #/g/<id> ---------- */
+function findGoods(id) {
+  for (const g of catalog) if (Number(g.id) === id) return g;
+  return null;
+}
+function goDetail(g) { location.hash = '#/g/' + g.id; }
+
+function route() {
+  const m = /^#\/g\/(\d+)$/.exec(location.hash || '');
+  const wrap = $('shopWrap');
+  const view = $('detailView');
+  if (!m) {
+    detailId = 0;
+    if (view) { view.style.display = 'none'; view.textContent = ''; }
+    if (wrap) wrap.style.display = '';
+    paint();
+    return;
+  }
+  if (detailId !== Number(m[1])) { detailId = Number(m[1]); dQty = 1; }
+  if (wrap) wrap.style.display = 'none';
+  if (view) view.style.display = '';
+  renderDetail();
+  window.scrollTo(0, 0);
+}
+
+function renderDetail() {
+  const box = $('detailView');
+  box.textContent = '';
+  if (!catalog.length) { box.appendChild(el('div', 'empty', '正在加载商品...')); return; }
+  const g = findGoods(detailId);
+
+  const crumb = el('div', 'crumb');
+  const home = el('button', 'crumb-link', '全部商品');
+  home.type = 'button';
+  home.addEventListener('click', () => { location.hash = ''; });
+  crumb.appendChild(home);
+  if (g && g.category) {
+    crumb.appendChild(el('span', 'crumb-sep', '›'));
+    const cat = el('button', 'crumb-link', g.category);
+    cat.type = 'button';
+    cat.addEventListener('click', () => { catKey = g.category; location.hash = ''; });
+    crumb.appendChild(cat);
+  }
+  if (g) { crumb.appendChild(el('span', 'crumb-sep', '›')); crumb.appendChild(el('span', 'crumb-cur', g.name)); }
+  box.appendChild(crumb);
+
+  if (!g) {
+    box.appendChild(el('div', 'empty', '该商品不存在，或已下架'));
+    const back = el('button', 'btn btn-primary btn-block', '返回商品列表');
+    back.type = 'button';
+    back.addEventListener('click', () => { location.hash = ''; });
+    box.appendChild(back);
+    return;
+  }
+
+  const sku = supplierSku(g);
+  const info = stockInfo(g);
+  const st = stockCellText(g);
+
+  // 头图 + 标题
+  const hero = el('div', 'dhero');
+  hero.appendChild(el('span', 'dcover', g.cover || '🎁'));
+  if (g.category) hero.appendChild(el('span', 'dbadge', g.category));
+  const head = el('div', 'dhead');
+  head.appendChild(el('h1', null, g.name));
+  head.appendChild(el('div', 'dtags', sku ? '货源直发 · 付款后自动发货' : '本店卡密 · 付款后立即发放'));
+  hero.appendChild(head);
+  box.appendChild(hero);
+
+  // 购买面板
+  const buy = el('div', 'dbuy');
+  const r1 = el('div', 'dbuy-row');
+  r1.appendChild(el('span', 'dbuy-label', '商品价格'));
+  const pv = el('span', 'dbuy-price');
+  pv.appendChild(el('small', null, '¥'));
+  pv.appendChild(document.createTextNode(money(g.price)));
+  r1.appendChild(pv);
+  r1.appendChild(el('span', 'dbuy-sold', '已售 ' + (Number(g.sales) || 0)));
+  buy.appendChild(r1);
+
+  const r2 = el('div', 'dbuy-row');
+  r2.appendChild(el('span', 'dbuy-label', '库存状态'));
+  const pills = el('span', 'dbuy-pills');
+  // 「下架 / 直发 / 不限量」这类文字不加单位，只有纯数字才加「件 / 张」
+  const qtyText = /^[0-9]+$/.test(st.text) ? st.text + (sku ? '件' : '张') : st.text;
+  const p1 = el('span', 'pill ' + (info.sellable ? 'ok' : 'bad'), qtyText);
+  pills.appendChild(p1);
+  pills.appendChild(el('span', 'pill', sku ? '自动发货' : '本店库存'));
+  r2.appendChild(pills);
+  buy.appendChild(r2);
+
+  dQty = Math.min(Math.max(1, dQty), Math.max(1, info.max));
+  const r3 = el('div', 'dbuy-row');
+  r3.appendChild(el('span', 'dbuy-label', '购买数量'));
+  const step = el('span', 'qty-row');
+  const minus = el('button', 'qty-btn', '−');
+  minus.type = 'button';
+  const num = el('span', 'qty-num', String(dQty));
+  const plus = el('button', 'qty-btn', '+');
+  plus.type = 'button';
+  const setQty = (v) => {
+    dQty = Math.min(Math.max(1, v), Math.max(1, info.max));
+    num.textContent = String(dQty);
+    total.textContent = '¥ ' + money(g.price * dQty);
+  };
+  minus.addEventListener('click', () => setQty(dQty - 1));
+  plus.addEventListener('click', () => setQty(dQty + 1));
+  step.appendChild(minus); step.appendChild(num); step.appendChild(plus);
+  r3.appendChild(step);
+  buy.appendChild(r3);
+
+  const r4 = el('div', 'dbuy-row');
+  r4.appendChild(el('span', 'dbuy-label', '订单金额'));
+  const total = el('span', 'dbuy-total', '¥ ' + money(g.price * dQty));
+  r4.appendChild(total);
+  buy.appendChild(r4);
+
+  const go = el('button', 'btn btn-primary btn-block', info.sellable ? '立即购买' : '暂时缺货');
+  go.type = 'button';
+  go.disabled = !info.sellable;
+  go.addEventListener('click', () => openBuy(g, dQty));
+  buy.appendChild(go);
+  box.appendChild(buy);
+
+  // 商品介绍
+  const card = el('div', 'dcard');
+  card.appendChild(el('h3', null, '商品介绍'));
+  card.appendChild(infoBlock('商品名称', String(g.name || '')));
+  const desc = String(g.description || '').trim();
+  const detail = String(g.detail || '').trim();
+  const blocks = [];
+  if (desc) blocks.push({ title: '商品说明', body: desc });
+  for (const x of parseSections(detail)) {
+    if (x.title === '商品名称') continue;
+    // 详情里也有一段「商品说明」时改叫「商品详情」，别出现两个同名小节
+    blocks.push({ title: x.title === '商品说明' && desc ? '商品详情' : x.title, body: x.body });
+  }
+  if (!blocks.length) blocks.push({ title: '商品说明', body: '卖家暂未填写说明' });
+  for (const x of blocks) card.appendChild(infoBlock(x.title, x.body, true));
+  card.appendChild(infoBlock('发货方式', sku
+    ? '货源直发：付款后系统自动向货源方下单，卡密回传后发到你的邮箱'
+    : '本店卡密：付款后立即发放'));
+  card.appendChild(infoBlock('购买须知', '虚拟商品一经发出概不退换；单次可买 1~10 件，卡密会发到下单邮箱，也可在「订单查询」用订单号 + 邮箱随时查看。'));
+  box.appendChild(card);
+}
 /* ---------- 购买 ---------- */
-function openBuy(g) {
+function openBuy(g, presetQty) {
   current = g;
-  qty = 1;
-  $('qtyNum').textContent = '1';
+  qty = Math.min(Math.max(1, Math.floor(Number(presetQty) || 1)), maxQty(g));
+  $('qtyNum').textContent = String(qty);
   $('buyEmail').value = localStorage.getItem('FAKA_EMAIL') || '';
   const sum = $('buySummary');
   sum.textContent = '';
@@ -641,12 +816,7 @@ function bind() {
   if (vl) vl.addEventListener('click', () => setViewMode('list'));
   const vg = $('viewGridBtn');
   if (vg) vg.addEventListener('click', () => setViewMode('grid'));
-  const ib = $('infoBuyBtn');
-  if (ib) ib.addEventListener('click', () => {
-    if (!infoCurrent) return;
-    hide('infoModal');
-    openBuy(infoCurrent);
-  });
+  window.addEventListener('hashchange', route);
 }
 
 /* ---------- 推广邀请码 ----------

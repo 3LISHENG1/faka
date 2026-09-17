@@ -97,7 +97,35 @@
   .more-row { text-align: center; margin: 18px 0 40px; }
   .more-row .btn { min-width: 200px; }
 
-  /* 商品介绍弹窗 */
+  /* 商品详情页：#/g/<id> */
+  .detail { max-width: 880px; margin: 0 auto; padding-bottom: 46px; }
+  .crumb { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-sub); margin: 16px 2px 14px; }
+  .crumb-link { border: none; background: none; padding: 0; font-family: inherit; font-size: 12.5px; color: var(--primary); cursor: pointer; }
+  .crumb-link:hover { text-decoration: underline; }
+  .crumb-sep { color: #c7cbdb; }
+  .crumb-cur { max-width: 60vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dhero { position: relative; display: flex; gap: 18px; align-items: center; background: linear-gradient(135deg, #f0edff, #eaf3ff);
+    border: 1px solid var(--border); border-radius: 18px; padding: 26px 24px; }
+  .dcover { font-size: 62px; line-height: 1; flex: 0 0 auto; }
+  .dbadge { position: absolute; top: 14px; right: 16px; font-size: 11.5px; background: rgba(99,91,255,.12); color: var(--primary); padding: 4px 11px; border-radius: 20px; }
+  .dhead { min-width: 0; }
+  .dhead h1 { font-size: 20px; line-height: 1.45; word-break: break-word; }
+  .dtags { font-size: 12.5px; color: var(--text-sub); margin-top: 8px; }
+  .dbuy { background: var(--card); border: 1px solid var(--border); border-radius: 18px; padding: 8px 22px 22px; margin-top: 16px; }
+  .dbuy-row { display: flex; align-items: center; gap: 14px; padding: 15px 0; border-bottom: 1px dashed var(--border); }
+  .dbuy-label { flex: 0 0 76px; font-size: 13px; color: var(--text-sub); }
+  .dbuy-price { color: #f5572b; font-size: 30px; font-weight: 700; line-height: 1; }
+  .dbuy-price small { font-size: 16px; margin-right: 2px; }
+  .dbuy-sold { font-size: 12.5px; color: var(--text-sub); margin-left: auto; }
+  .dbuy-pills { display: flex; gap: 8px; flex-wrap: wrap; }
+  .pill { font-size: 12px; padding: 5px 12px; border-radius: 20px; background: var(--bg); color: var(--text-sub); border: 1px solid var(--border); }
+  .pill.ok { background: #eafaf0; color: var(--success); border-color: #cdeeda; font-weight: 600; }
+  .pill.bad { background: #fdeeef; color: var(--danger); border-color: #f6d6d8; font-weight: 700; }
+  .dbuy-total { color: #f5572b; font-size: 21px; font-weight: 700; }
+  .dbuy .btn-block { margin-top: 18px; }
+  .dcard { background: var(--card); border: 1px solid var(--border); border-radius: 18px; padding: 6px 22px 18px; margin-top: 16px; }
+  .dcard h3 { font-size: 15.5px; padding: 16px 0 4px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+  /* 商品介绍分小节 */
   .modal.modal-wide { max-width: 580px; }
   .info-block { padding: 11px 0; border-bottom: 1px dashed var(--border); }
   .info-block:last-child { border-bottom: none; }
@@ -158,7 +186,9 @@
   .card-secret .copy-one:hover { background: #f0edff; }
   #toast { position: fixed; top: 80px; left: 50%; transform: translateX(-50%) translateY(-16px); background: #1a1f36; color: #fff; padding: 10px 22px; border-radius: 10px; font-size: 14px; opacity: 0; pointer-events: none; transition: all .3s; z-index: 999; }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-  @media (max-width: 560px) { .grid { grid-template-columns: repeat(2, 1fr); gap: 12px; } .goods-card { padding: 14px; } .goods-cover { height: 64px; font-size: 34px; } }
+  @media (max-width: 560px) { .grid { grid-template-columns: repeat(2, 1fr); gap: 12px; } .goods-card { padding: 14px; } .goods-cover { height: 64px; font-size: 34px; }
+    .dhero { flex-direction: column; align-items: flex-start; gap: 12px; padding: 20px 18px; } .dcover { font-size: 48px; } .dhead h1 { font-size: 17px; }
+    .dbuy-row { flex-wrap: wrap; gap: 10px; } .dbuy-label { flex: 0 0 100%; } .dbuy-sold { margin-left: 0; } }
   @media (max-width: 900px) {
     .shop-wrap { grid-template-columns: 1fr; gap: 12px; }
     .side { position: static; max-height: none; padding: 10px; }
@@ -190,7 +220,7 @@
 </header>
 
 <div class="container">
-  <div class="shop-wrap">
+  <div class="shop-wrap" id="shopWrap">
     <aside class="side">
       <div class="side-head"><span>📁</span><span>商品分类</span></div>
       <div class="cat-bar" id="catBar"></div>
@@ -219,19 +249,10 @@
       </div>
     </main>
   </div>
+  <div class="detail" id="detailView" style="display:none"></div>
 </div>
 
 <footer>本站商品均为虚拟商品，一经售出概不退换</footer>
-
-<!-- 商品介绍弹窗：点商品名打开 -->
-<div class="modal-mask" id="infoModal">
-  <div class="modal modal-wide">
-    <h3>商品介绍<button type="button" class="close" data-close="infoModal">✕</button></h3>
-    <div id="infoBody"></div>
-    <div class="total-row" style="padding-top:16px"><span class="label">单价</span><span class="amount">¥ <span id="infoPrice">0.00</span></span></div>
-    <button type="button" class="btn btn-primary btn-block" id="infoBuyBtn">立即购买</button>
-  </div>
-</div>
 
 <!-- 购买弹窗 -->
 <div class="modal-mask" id="buyModal">

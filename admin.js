@@ -233,6 +233,7 @@ function openGoodsModal(g) {
   $('gPrice').value = g ? money(g.price) : '';
   $('gCategory').value = g ? (g.category || '') : '';
   $('gDesc').value = g ? (g.description || '') : '';
+  $('gDetail').value = g ? (g.detail || '') : '';
   $('gSupplier').value = g ? (g.supplier_sku_id || '') : '';
   if ($('gStatus')) $('gStatus').value = g ? String(g.status === 0 ? 0 : 1) : '1';
   $('goodsModal').classList.add('show');
@@ -246,6 +247,7 @@ async function saveGoods() {
   const payload = {
     name, cover: $('gCover').value || '🎁', price: Math.round(price * 100),
     category: $('gCategory').value.trim(), description: $('gDesc').value.trim(),
+    detail: $('gDetail').value.trim(),
     supplier_sku_id: $('gSupplier').value.trim(),
   };
   if ($('gStatus')) payload.status = parseInt($('gStatus').value, 10);
@@ -398,6 +400,7 @@ async function loadSupplier() {
   $('supApiKey').value = c.api_key || '';
   if ($('supMinMarkup')) $('supMinMarkup').value = String(c.min_markup_pct === null || c.min_markup_pct === undefined ? 30 : c.min_markup_pct);
   if ($('supAutoDelist')) $('supAutoDelist').value = c.auto_delist === false ? '0' : '1';
+  if ($('supSyncCost')) $('supSyncCost').value = c.sync_cost === true ? '1' : '0';
   const alert = $('supAlert');
   if (alert) {
     const lines = [];
@@ -412,8 +415,11 @@ async function loadSupplier() {
     } catch (e) { /* 新字段还没建时忽略 */ }
     const scanned = Number(c.sync_page) > 0
       ? '库存扫描进行中（第 ' + c.sync_page + ' 页）'
-      : (Number(c.last_sync_at) ? '库存已扫完一轮' : '还没同步过库存，点「同步库存与进价」');
+      : (Number(c.last_sync_at) ? '库存已扫完一轮' : '还没同步过库存，点「同步库存」');
     lines.push('📊 对方缺货 ' + oos + ' 个｜系统自动下架 ' + off + ' 个｜' + scanned);
+    lines.push(c.sync_cost === true
+      ? '🔧 同步范围：库存 + 进价（进价上涨会自动抬售价，最低加价率 ' + (Number(c.min_markup_pct) || 30) + '%）'
+      : '🔧 同步范围：只同步库存，进价和售价都不动（要自动抬价就把「同步范围」切成同步库存 + 进价）');
     alert.textContent = lines.join('\n');
     alert.style.display = 'block';
     alert.style.borderLeft = c.paused_reason ? '3px solid #dc2626' : '3px solid #6366f1';
@@ -431,6 +437,7 @@ async function saveSupplier() {
   };
   payload.min_markup_pct = Number($('supMinMarkup') ? $('supMinMarkup').value : 30) || 0;
   payload.auto_delist = $('supAutoDelist') ? $('supAutoDelist').value === '1' : true;
+  payload.sync_cost = $('supSyncCost') ? $('supSyncCost').value === '1' : false;
   const { error } = await supa.from('supplier_config').upsert(payload);
   toast(error ? errText(error) : '已保存。商户密钥请单独配到 Edge Function Secrets（见 README 第 3 步）。');
 }
@@ -470,7 +477,7 @@ async function syncStock() {
       if (!data.sync) throw new Error("函数没返回同步结果：多半是 Edge Function 还是旧版，按 README 第 5 步重新粘贴部署");
       const s = data.sync;
       if (!s.ok) throw new Error(s.error_message || '同步中断');
-      if (s.done) { if (stat) stat.textContent = s.note || '同步完成'; toast('库存与进价同步完成'); break; }
+      if (s.done) { if (stat) stat.textContent = s.note || '同步完成'; toast('库存同步完成'); break; }
     }
     await loadSupplier();
   } catch (e) {
@@ -478,6 +485,26 @@ async function syncStock() {
     toast('同步失败：' + e.message);
   } finally {
     if (b) b.disabled = false;
+  }
+}
+
+// 把对方的「商品说明 / 详情」一次性搬进本站商品表（不覆盖你手改过的说明）
+async function syncDesc() {
+  const b = document.querySelector('[data-action="sync-desc"]');
+  const stat = $('supDescStat');
+  if (!confirm('将翻一遍对方全部商品，把「商品说明」和「详情长文」写进本站商品。\n\n你自己改过的说明不会被覆盖。确定继续？')) return;
+  if (b) { b.disabled = true; b.textContent = '同步中...'; }
+  if (stat) stat.textContent = '正在翻页抓对方文案，约 30~60 秒…';
+  try {
+    const data = await fnCall({ action: 'syncdesc' });
+    if (!data || data.ok !== true) throw new Error((data && data.error_message) || '返回异常：多半是 Edge Function 还是旧版，按 README 第 5 步重新粘贴部署');
+    if (stat) stat.textContent = data.note;
+    toast(data.note);
+  } catch (e) {
+    if (stat) stat.textContent = '失败：' + e.message;
+    toast('同步说明失败：' + e.message);
+  } finally {
+    if (b) { b.disabled = false; b.textContent = '同步对方说明'; }
   }
 }
 
@@ -638,7 +665,8 @@ function quickGoods(it) {
   $('gCover').value = '📱';
   $('gPrice').value = retailPrice(it.price, markupPct()).toFixed(2);
   $('gCategory').value = guessCategory(it.title);
-  $('gDesc').value = '货源直发 · 付款后自动发货';
+  $('gDesc').value = String(it.desc || '').trim() || '货源直发 · 付款后自动发货';
+  $('gDetail').value = String(it.detail || '').trim();
   $('gSupplier').value = String(it.sku_id);
   if ($('gStatus')) $('gStatus').value = '1';
   toast('已自动填好，确认名字和价格后点「保存商品」');
@@ -649,7 +677,8 @@ function goodsPayload(it) {
     cover: '📱',
     price: Math.round(retailPrice(it.price, markupPct()) * 100),
     category: guessCategory(it.title),
-    description: '货源直发 · 付款后自动发货',
+    description: String(it.desc || '').trim() || '货源直发 · 付款后自动发货',
+    detail: String(it.detail || '').trim(),
     supplier_sku_id: String(it.sku_id),
     status: 1,
     sales: 0,
@@ -735,6 +764,7 @@ function bind() {
     if (a === 'run-fulfill') b.addEventListener('click', runFulfill);
     if (a === 'sync-stock') b.addEventListener('click', syncStock);
     if (a === 'bulk-goods') b.addEventListener('click', bulkGoods);
+    if (a === 'sync-desc') b.addEventListener('click', syncDesc);
   });
   const sf = $('supFilter');
   for (const id of ['goodsFilter', 'goodsStockFilter']) {
