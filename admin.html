@@ -223,13 +223,20 @@
         <div class="page-title">货源对接</div>
         <div class="panel">
           <div class="panel-head"><h4>对接参数（协议 dujiao-next）</h4></div>
+          <div id="supAlert" class="hint" style="display:none;white-space:pre-wrap;margin-bottom:12px"></div>
           <div class="form-item"><label>货源代发</label><select id="supEnabled"><option value="0">关闭（只卖本店卡密）</option><option value="1">开启（本店无货时自动向对方下单）</option></select></div>
           <div class="form-item"><label>对接网址 base_url</label><input type="text" id="supBaseUrl" maxlength="200" placeholder="https://api.fb0.cc"></div>
           <div class="form-item"><label>商户 ID（= dujiao-next 的 API Key）</label><input type="text" id="supApiKey" maxlength="120" placeholder="在对方「我的主页」获取"></div>
+          <div class="form-row">
+            <div class="form-item"><label>最低加价率 %</label><input type="number" id="supMinMarkup" value="30" min="0" max="500" step="5" style="width:110px"></div>
+            <div class="form-item"><label>缺货自动下架</label><select id="supAutoDelist"><option value="1">开启（对方没货就自动下架，补货自动上架）</option><option value="0">关闭（永远保持上架）</option></select></div>
+          </div>
           <button type="button" class="btn btn-primary" data-action="save-supplier">保存对接参数</button>
           <button type="button" class="btn btn-ghost" data-action="pull-catalog">拉取对方商品清单</button>
           <button type="button" class="btn btn-ghost" data-action="run-fulfill">立即代发（手动巡检）</button>
           <span id="supFulfillStat" style="font-size:12px"></span>
+          <button type="button" class="btn btn-ghost" data-action="sync-stock">同步库存与进价</button>
+          <span id="supSyncStat" style="font-size:12px"></span>
           <div class="form-item" style="margin-top:14px"><label>对方商品清单（sku_id | 标题 | 价格 | 库存）</label><textarea id="supCatalog" readonly style="min-height:170px;font-size:12px" placeholder="点上方按钮拉取，直接复制 sku_id 到商品编辑框"></textarea></div>
           <div class="form-item"><label>想卖哪个？点行末「建商品」直接生成</label><div id="supCatalogList" style="max-height:340px;overflow:auto;border:1px solid #e5e7eb;border-radius:8px;padding:6px 10px"></div></div>
           <div class="form-item"><label>批量建商品</label>

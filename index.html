@@ -25,7 +25,25 @@
   .btn-primary:disabled { opacity: .55; cursor: not-allowed; }
   .btn-block { width: 100%; padding: 13px; font-size: 15px; font-weight: 600; }
   .announcement { margin-top: 20px; padding: 13px 18px; border-radius: 14px; background: linear-gradient(135deg, #eef0ff, #f6ecff); border: 1px solid #e3e4ff; color: #4a44b8; font-size: 14px; display: flex; align-items: center; gap: 10px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 18px; margin: 22px 0 40px; }
+    /* 搜索 / 分类 / 排序 */
+  .shop-tools { display:flex; gap:10px; flex-wrap:wrap; margin-top:18px; }
+  .shop-search { flex:1 1 260px; padding:11px 14px; border:1.5px solid var(--border); border-radius:11px;
+    font-size:14px; font-family:inherit; outline:none; background:var(--card); color:var(--text); }
+  .shop-search:focus { border-color:var(--primary); }
+  .shop-sort { padding:10px 12px; border:1.5px solid var(--border); border-radius:11px; font-size:13px;
+    font-family:inherit; background:var(--card); color:var(--text); outline:none; cursor:pointer; }
+  .cat-more { padding:6px 10px; border-radius:20px; font-size:12.5px; }
+  .cat-bar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:12px; }
+  .cat-chip { border:1px solid var(--border); background:var(--card); color:var(--text-sub); font-size:12.5px;
+    padding:6px 12px; border-radius:20px; cursor:pointer; font-family:inherit; transition:all .18s; }
+  .cat-chip:hover { border-color:var(--primary); color:var(--primary); }
+  .cat-chip.on { background:var(--primary); border-color:var(--primary); color:#fff; font-weight:600; }
+  .cat-chip small { opacity:.7; margin-left:4px; }
+  .shop-count { font-size:12.5px; color:var(--text-sub); margin-top:14px; }
+  .more-row { text-align:center; margin-top:-16px; }
+  .more-row .btn { min-width:200px; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 18px; margin: 22px 0 40px; }
   .goods-card { background: var(--card); border-radius: 16px; padding: 20px; border: 1px solid var(--border); transition: all .25s; position: relative; }
   .goods-card:hover { transform: translateY(-4px); box-shadow: 0 12px 30px rgba(99,91,255,.12); border-color: #d8d5ff; }
   .goods-cover { height: 88px; border-radius: 12px; margin-bottom: 14px; background: linear-gradient(135deg, #f0edff, #e8f4ff); display: flex; align-items: center; justify-content: center; font-size: 44px; }
@@ -100,7 +118,22 @@
 
 <div class="container">
   <div class="announcement"><span>📢</span><span id="announcement">正在加载...</span></div>
+  <div class="shop-tools">
+    <input type="search" id="searchBox" class="shop-search" maxlength="60" autocomplete="off"
+      placeholder="搜索商品名称或分类，例如 Gmail、苹果、会员">
+    <select id="sortBox" class="shop-sort">
+      <option value="new">最新上架</option>
+      <option value="hot">销量优先</option>
+      <option value="cheap">价格从低到高</option>
+      <option value="exp">价格从高到低</option>
+    </select>
+  </div>
+  <div class="cat-bar" id="catBar"></div>
+  <div class="shop-count" id="shopCount"></div>
   <div class="grid" id="goodsGrid"></div>
+  <div class="more-row" id="moreRow" style="display:none">
+    <button type="button" class="btn btn-ghost" id="moreBtn">加载更多</button>
+  </div>
 </div>
 
 <footer>本站商品均为虚拟商品，一经售出概不退换</footer>

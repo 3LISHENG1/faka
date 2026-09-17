@@ -181,6 +181,7 @@ async function saveGoods() {
     supplier_sku_id: $('gSupplier').value.trim(),
   };
   if ($('gStatus')) payload.status = parseInt($('gStatus').value, 10);
+  payload.supplier_auto_off = false; // 人工改过上架状态，就别再自动翻回来
   const b = $('saveGoodsBtn'); b.disabled = true;
   try {
     let r;
@@ -327,6 +328,25 @@ async function loadSupplier() {
   $('supEnabled').value = c.enabled ? '1' : '0';
   $('supBaseUrl').value = c.base_url || '';
   $('supApiKey').value = c.api_key || '';
+  if ($('supMinMarkup')) $('supMinMarkup').value = String(c.min_markup_pct === null || c.min_markup_pct === undefined ? 30 : c.min_markup_pct);
+  if ($('supAutoDelist')) $('supAutoDelist').value = c.auto_delist === false ? '0' : '1';
+  const alert = $('supAlert');
+  if (alert) {
+    const lines = [];
+    if (c.paused_reason) lines.push('🛑 ' + c.paused_reason);
+    if (c.last_sync_note) lines.push('📦 ' + c.last_sync_note + '（' + (c.last_sync_at ? new Date(Number(c.last_sync_at)).toLocaleString() : '?') + '）');
+    let oos = 0; let off = 0;
+    try {
+      const a = await supa.from('goods').select('id', { count: 'exact', head: true }).neq('supplier_sku_id', '').eq('supplier_stock', 0);
+      const b2 = await supa.from('goods').select('id', { count: 'exact', head: true }).neq('supplier_sku_id', '').eq('status', 0).eq('supplier_auto_off', true);
+      if (!a.error) oos = a.count || 0;
+      if (!b2.error) off = b2.count || 0;
+    } catch (e) { /* 新字段还没建时忽略 */ }
+    lines.push('📊 对方缺货 ' + oos + ' 个｜系统自动下架 ' + off + ' 个｜' + (Number(c.sync_page) > 0 ? '库存扫描进行中（第 ' + c.sync_page + ' 页）' : '库存已扫完一轮'));
+    alert.textContent = lines.join('\n');
+    alert.style.display = 'block';
+    alert.style.borderLeft = c.paused_reason ? '3px solid #dc2626' : '3px solid #6366f1';
+  }
 }
 async function saveSupplier() {
   const base = $('supBaseUrl').value.trim();
@@ -338,6 +358,8 @@ async function saveSupplier() {
     api_key: $('supApiKey').value.trim(),
     updated_at: Date.now(),
   };
+  payload.min_markup_pct = Number($('supMinMarkup') ? $('supMinMarkup').value : 30) || 0;
+  payload.auto_delist = $('supAutoDelist') ? $('supAutoDelist').value === '1' : true;
   const { error } = await supa.from('supplier_config').upsert(payload);
   toast(error ? errText(error) : '已保存。商户密钥请单独配到 Edge Function Secrets（见 README 第 3 步）。');
 }
@@ -364,6 +386,29 @@ async function fnCall(body) {
   if (!res.ok && !json) throw new Error('HTTP ' + res.status + '：' + text.slice(0, 160));
   return json;
 }
+// 库存同步：服务端一次只翻一页，这里循环点到 done，实时报进度
+async function syncStock() {
+  const b = document.querySelector('[data-action="sync-stock"]');
+  const stat = $('supSyncStat');
+  if (b) b.disabled = true;
+  try {
+    for (let i = 1; i <= 200; i++) {
+      if (stat) stat.textContent = '同步中… 第 ' + i + ' 页';
+      const data = await fnCall({ action: 'sync' });
+      if (!data || data.ok !== true) throw new Error((data && data.error_message) || '返回异常');
+      const s = data.sync || {};
+      if (!s.ok) throw new Error(s.error_message || '同步中断');
+      if (s.done) { if (stat) stat.textContent = s.note || '同步完成'; toast('库存与进价同步完成'); break; }
+    }
+    await loadSupplier();
+  } catch (e) {
+    if (stat) stat.textContent = '失败：' + e.message;
+    toast('同步失败：' + e.message);
+  } finally {
+    if (b) b.disabled = false;
+  }
+}
+
 async function pullCatalog() {
   const b = document.querySelector('[data-action="pull-catalog"]');
   const box = $('supCatalog');
@@ -404,9 +449,42 @@ function markupPct() {
   const n = box ? Number(box.value) : 30;
   return (Number.isFinite(n) ? Math.min(500, Math.max(0, n)) : 30) / 100;
 }
-// 标题开头的英文单词当分类，前台的分类筛选才有用
+// 标题 -> 分类。规则顺序必须和 06-category.sql 里的 goods_cat_of 一字不差，
+// 否则「批量建商品」分出来的类和「一键重归类」的结果会打架。
+const CAT_RULES = [
+  [/gmail/i, 'Gmail'],
+  [/youtube|油管/i, 'YouTube'],
+  [/google|谷歌/i, 'Google'],
+  [/instagram|(^|[^a-z])ins([^a-z]|$)/i, 'Instagram'],
+  [/facebook|脸书|(^|[^a-z])fb([^a-z]|$)/i, 'Facebook'],
+  [/tiktok|抖音/i, 'TikTok'],
+  [/telegram|(^|[^a-z])tg([^a-z]|$)/i, 'Telegram'],
+  [/twitter/i, 'Twitter'],
+  [/whatsapp/i, 'WhatsApp'],
+  [/discord/i, 'Discord'],
+  [/reddit/i, 'Reddit'],
+  [/(^|[^a-z])signal([^a-z]|$)/i, 'Signal'],
+  [/kakao/i, 'Kakao'],
+  [/(^|[^a-z])line([^a-z]|$)|韩国/i, 'Line'],
+  [/microsoft|outlook|hotmail|live\.com|office/i, 'Microsoft'],
+  [/yahoo/i, 'Yahoo'],
+  [/apple|苹果|app\s?store|itunes|(^|[^a-z])ios([^a-z]|$)/i, 'Apple'],
+  [/amazon|亚马逊/i, 'Amazon'],
+  [/netflix/i, 'Netflix'],
+  [/chatgpt|openai|(^|[^a-z])gpt([^a-z]|$)/i, 'ChatGPT'],
+  [/claude/i, 'Claude'],
+  [/steam/i, 'Steam'],
+  [/spotify|deezer/i, 'Spotify'],
+  [/pubg|原神|游戏/i, '游戏'],
+  [/接码|虚商|虚拟号码|手机号|号码/i, '号码'],
+  [/邮箱|(^|[^a-z])email([^a-z]|$)|(^|[^a-z])mail([^a-z]|$)|(^|[^a-z])imap([^a-z]|$)/i, '邮箱'],
+  [/会员|vip|premium/i, '会员'],
+  [/人工/i, '人工服务'],
+];
 function guessCategory(title) {
-  const m = String(title || '').match(/^[A-Za-z]{2,10}/);
+  const t = String(title || '');
+  for (const [re, name] of CAT_RULES) if (re.test(t)) return name;
+  const m = t.match(/^[A-Za-z]{2,10}/);
   return m ? m[0] : '';
 }
 // 「已建」判断不能依赖商品列表缓存：商品表 loadGoodsAdmin 只取前 1000 行，
@@ -470,6 +548,9 @@ function markBuilt(skuId) {
     title.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
     row.appendChild(title);
     row.appendChild(el('span', null, '进价¥' + it.price));
+    const stockCell = el('span', null, '库存' + (it.stock === undefined || it.stock === null ? '?' : it.stock));
+    if (!Number(it.stock)) { stockCell.style.cssText = 'color:#dc2626;font-weight:700'; }
+    row.appendChild(stockCell);
     row.appendChild(el('span', null, String(it.delivery || '')));
     if (built.has(String(it.sku_id))) row.appendChild(el('span', null, '已建'));
     else row.appendChild(btn('btn btn-ghost btn-sm', '建商品', () => quickGoods(it)));
@@ -580,6 +661,7 @@ function bind() {
     if (a === 'save-supplier') b.addEventListener('click', saveSupplier);
     if (a === 'pull-catalog') b.addEventListener('click', pullCatalog);
     if (a === 'run-fulfill') b.addEventListener('click', runFulfill);
+    if (a === 'sync-stock') b.addEventListener('click', syncStock);
     if (a === 'bulk-goods') b.addEventListener('click', bulkGoods);
   });
   const sf = $('supFilter');

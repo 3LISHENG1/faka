@@ -84,12 +84,117 @@ async function loadCatalog() {
     return;
   }
   catalog = Array.isArray(data) ? data : [];
+  shown = PAGE_SIZE;
+  paint();
+}
+
+/* ---------- 分类 / 搜索 / 排序 / 分页 ----------
+   商品上千个，一次性全渲染会卡；这里只渲染前 shown 个，其余靠「加载更多」。
+   分类和搜索都在内存里做，不再多打一次数据库。 */
+const PAGE_SIZE = 60;
+let shown = PAGE_SIZE;
+let catKey = '';
+let keyword = '';
+let sortKey = 'new';
+
+function catOf(g) { return String(g.category || '').trim() || '未分类'; }
+
+function byKeyword() {
+  if (!keyword) return catalog;
+  return catalog.filter((g) => `${g.name || ''} ${g.category || ''} ${g.description || ''}`.toLowerCase().includes(keyword));
+}
+
+function categoryList(list) {
+  const m = new Map();
+  for (const g of list) { const k = catOf(g); m.set(k, (m.get(k) || 0) + 1); }
+  return [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'zh'));
+}
+
+function sortedList(list) {
+  const arr = list.slice();
+  // rpc_catalog 本身按 created_at DESC 返回，new 就不用再排
+  if (sortKey === 'cheap') arr.sort((a, b) => (a.price - b.price) || (b.id - a.id));
+  else if (sortKey === 'exp') arr.sort((a, b) => (b.price - a.price) || (b.id - a.id));
+  else if (sortKey === 'hot') arr.sort((a, b) => (Number(b.sales) || 0) - (Number(a.sales) || 0) || (b.id - a.id));
+  return arr;
+}
+
+function currentList() {
+  const base = byKeyword();
+  const cats = categoryList(base);
+  if (catKey && !cats.some((c) => c[0] === catKey)) catKey = '';
+  const list = catKey ? base.filter((g) => catOf(g) === catKey) : base;
+  return { cats, list: sortedList(list) };
+}
+
+function chip(label, n, key) {
+  const b = el('button', 'cat-chip' + (catKey === key ? ' on' : ''));
+  b.type = 'button';
+  b.setAttribute('data-cat', key);
+  b.appendChild(document.createTextNode(label));
+  if (n) b.appendChild(el('small', null, String(n)));
+  return b;
+}
+
+function renderCats(cats) {
+  const bar = $('catBar');
+  bar.textContent = '';
+  if (cats.length < 2) return;
+  const TOP = 16;
+  const head = cats.slice(0, TOP);
+  const tail = cats.slice(TOP);
+  bar.appendChild(chip('全部', 0, ''));
+  for (const [name, n] of head) bar.appendChild(chip(name, n, name));
+  if (tail.length) {
+    // 分类太多（自动归类很容易上百个），长尾收进下拉框，不占地方
+    const sel = document.createElement('select');
+    sel.className = 'shop-sort cat-more';
+    const ph = document.createElement('option');
+    ph.value = '';
+    ph.textContent = `其他 ${tail.length} 个分类 ▾`;
+    sel.appendChild(ph);
+    for (const [name, n] of tail) {
+      const o = document.createElement('option');
+      o.value = name;
+      o.textContent = `${name} (${n})`;
+      sel.appendChild(o);
+    }
+    if (tail.some((c) => c[0] === catKey)) sel.value = catKey;
+    sel.addEventListener('change', () => { catKey = sel.value; shown = PAGE_SIZE; paint(); });
+    bar.appendChild(sel);
+  }
+}
+
+function paint() {
+  const grid = $('goodsGrid');
+  const moreRow = $('moreRow');
+  const count = $('shopCount');
   grid.textContent = '';
   if (!catalog.length) {
     grid.appendChild(el('div', 'empty', '暂无在售商品'));
+    $('catBar').textContent = '';
+    if (count) count.textContent = '';
+    if (moreRow) moreRow.style.display = 'none';
     return;
   }
-  for (const g of catalog) grid.appendChild(renderCard(g));
+  const cur = currentList();
+  renderCats(cur.cats);
+  if (!cur.list.length) {
+    grid.appendChild(el('div', 'empty', '没有匹配的商品，换个关键词试试'));
+    if (count) count.textContent = '共 0 个';
+    if (moreRow) moreRow.style.display = 'none';
+    return;
+  }
+  for (const g of cur.list.slice(0, shown)) grid.appendChild(renderCard(g));
+  if (moreRow) moreRow.style.display = shown < cur.list.length ? 'block' : 'none';
+  if (count) {
+    const bits = [];
+    if (keyword) bits.push('搜索「' + keyword + '」');
+    bits.push(catKey || '全部分类');
+    bits.push('共 ' + cur.list.length + ' 个');
+    bits.push('已显示 ' + Math.min(shown, cur.list.length) + ' 个');
+    count.textContent = bits.join(' ｜ ');
+  }
 }
 
 /* ---------- 货源代发：配了对方 SKU 的商品不受本店卡密库存限制 ---------- */
@@ -353,6 +458,27 @@ function bind() {
   $('doQueryBtn').addEventListener('click', doQuery);
   $('queryEmail').addEventListener('keydown', (e) => { if (e.key === 'Enter') doQuery(); });
   $('buyEmail').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitOrder(); });
+
+  // 商品筛选：输入防抖 220ms，避免每敲一个字就重排上千个卡片
+  const sb = $('searchBox');
+  let sTimer = null;
+  const applyKw = () => { keyword = (sb.value || '').trim().toLowerCase(); shown = PAGE_SIZE; paint(); };
+  if (sb) {
+    sb.addEventListener('input', () => { clearTimeout(sTimer); sTimer = setTimeout(applyKw, 220); });
+    sb.addEventListener('keydown', (e) => { if (e.key === 'Enter') { clearTimeout(sTimer); applyKw(); } });
+  }
+  const so = $('sortBox');
+  if (so) so.addEventListener('change', () => { sortKey = so.value || 'new'; shown = PAGE_SIZE; paint(); });
+  const bar = $('catBar');
+  if (bar) bar.addEventListener('click', (e) => {
+    const b = e.target.closest ? e.target.closest('[data-cat]') : null;
+    if (!b) return;
+    catKey = b.getAttribute('data-cat') || '';
+    shown = PAGE_SIZE;
+    paint();
+  });
+  const mb = $('moreBtn');
+  if (mb) mb.addEventListener('click', () => { shown += PAGE_SIZE; paint(); });
 }
 
 /* ---------- 推广邀请码 ----------
