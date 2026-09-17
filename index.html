@@ -11,7 +11,7 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
   :root { --primary:#635bff; --primary-dark:#5343d9; --bg:#f6f7fb; --card:#fff; --text:#1a1f36; --text-sub:#6b7280; --border:#e8e9f2; --success:#16a34a; --danger:#ef4444; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
-  .container { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
+  .container { max-width: 1200px; margin: 0 auto; padding: 0 20px; }
   header { background: rgba(255,255,255,.9); backdrop-filter: blur(10px); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 100; }
   .header-inner { display: flex; align-items: center; justify-content: space-between; height: 64px; }
   .logo { font-size: 20px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
@@ -25,23 +25,85 @@
   .btn-primary:disabled { opacity: .55; cursor: not-allowed; }
   .btn-block { width: 100%; padding: 13px; font-size: 15px; font-weight: 600; }
   .announcement { margin-top: 20px; padding: 13px 18px; border-radius: 14px; background: linear-gradient(135deg, #eef0ff, #f6ecff); border: 1px solid #e3e4ff; color: #4a44b8; font-size: 14px; display: flex; align-items: center; gap: 10px; }
-    /* 搜索 / 分类 / 排序 */
-  .shop-tools { display:flex; gap:10px; flex-wrap:wrap; margin-top:18px; }
-  .shop-search { flex:1 1 260px; padding:11px 14px; border:1.5px solid var(--border); border-radius:11px;
-    font-size:14px; font-family:inherit; outline:none; background:var(--card); color:var(--text); }
-  .shop-search:focus { border-color:var(--primary); }
-  .shop-sort { padding:10px 12px; border:1.5px solid var(--border); border-radius:11px; font-size:13px;
-    font-family:inherit; background:var(--card); color:var(--text); outline:none; cursor:pointer; }
-  .cat-more { padding:6px 10px; border-radius:20px; font-size:12.5px; }
-  .cat-bar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:12px; }
-  .cat-chip { border:1px solid var(--border); background:var(--card); color:var(--text-sub); font-size:12.5px;
-    padding:6px 12px; border-radius:20px; cursor:pointer; font-family:inherit; transition:all .18s; }
-  .cat-chip:hover { border-color:var(--primary); color:var(--primary); }
-  .cat-chip.on { background:var(--primary); border-color:var(--primary); color:#fff; font-weight:600; }
-  .cat-chip small { opacity:.7; margin-left:4px; }
-  .shop-count { font-size:12.5px; color:var(--text-sub); margin-top:14px; }
-  .more-row { text-align:center; margin-top:-16px; }
-  .more-row .btn { min-width:200px; }
+  /* 两栏：左分类栏 + 右商品列表 */
+  .shop-wrap { display: grid; grid-template-columns: 236px 1fr; gap: 18px; align-items: start; margin: 18px 0 0; }
+  .side { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 12px;
+    position: sticky; top: 80px; max-height: calc(100vh - 100px); overflow-y: auto; }
+  .side-head { font-size: 13px; font-weight: 700; color: var(--text-sub); padding: 2px 6px 10px; display: flex; gap: 6px; }
+  .cat-bar { display: flex; flex-direction: column; gap: 8px; }
+  .cat-item { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; font-family: inherit;
+    border: 1px solid var(--border); background: var(--card); border-radius: 12px; padding: 9px 11px; cursor: pointer; transition: all .18s; }
+  .cat-item:hover { border-color: #cfc9ff; transform: translateX(2px); }
+  .cat-item.on { background: linear-gradient(135deg, var(--primary), #8a7bff); border-color: transparent; color: #fff; }
+  .cat-icon { width: 30px; height: 30px; flex: 0 0 30px; border-radius: 9px; background: var(--bg);
+    display: flex; align-items: center; justify-content: center; font-size: 16px; }
+  .cat-item.on .cat-icon { background: rgba(255,255,255,.22); }
+  .cat-text { min-width: 0; flex: 1; }
+  .cat-text b { display: block; font-size: 13.5px; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cat-text small { display: block; font-size: 11px; color: var(--text-sub); margin-top: 1px; }
+  .cat-item.on .cat-text small { color: rgba(255,255,255,.82); }
+  .main { min-width: 0; }
+  .main .announcement { margin-top: 0; }
+
+  /* 工具条 */
+  .shop-tools { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 14px;
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 10px 12px; }
+  .tools-title { font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 7px; }
+  .shop-search { flex: 1 1 200px; padding: 10px 14px; border: 1.5px solid var(--border); border-radius: 11px;
+    font-size: 14px; font-family: inherit; outline: none; background: var(--bg); color: var(--text); }
+  .shop-search:focus { border-color: var(--primary); background: #fff; }
+  .shop-sort { padding: 9px 11px; border: 1.5px solid var(--border); border-radius: 11px; font-size: 13px;
+    font-family: inherit; background: var(--card); color: var(--text); outline: none; cursor: pointer; }
+  .view-toggle { display: flex; gap: 4px; background: var(--bg); border: 1px solid var(--border); border-radius: 11px; padding: 3px; }
+  .view-toggle button { border: none; background: transparent; cursor: pointer; font-family: inherit; font-size: 14px;
+    color: var(--text-sub); border-radius: 8px; padding: 5px 11px; line-height: 1; }
+  .view-toggle button.on { background: var(--primary); color: #fff; }
+
+  /* 列表视图：按分类分组的表格 */
+  .rows { display: flex; flex-direction: column; gap: 16px; margin: 16px 0 8px; }
+  .pcard { background: var(--card); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; }
+  .pcard-head { display: flex; align-items: center; gap: 10px; padding: 13px 18px; border-bottom: 1px solid var(--border);
+    background: linear-gradient(135deg, #f4f3ff, #eef4ff); }
+  .pcard-icon { width: 30px; height: 30px; border-radius: 9px; background: #fff; border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center; font-size: 16px; }
+  .pcard-head h3 { font-size: 15px; }
+  .pcard-head small { font-size: 11.5px; color: var(--text-sub); margin-left: auto; }
+  .ptable { width: 100%; border-collapse: collapse; }
+  .ptable th { text-align: left; font-size: 12px; font-weight: 600; color: var(--text-sub); padding: 10px 14px; background: #fbfbfe; }
+  .ptable td { padding: 12px 14px; border-top: 1px solid var(--border); font-size: 13.5px; vertical-align: middle; }
+  .ptable tbody tr:hover { background: #f8f8ff; }
+  .ptable th.c-stock, .ptable th.c-sold, .ptable th.c-buy { text-align: right; }
+  .ptable td.c-stock, .ptable td.c-sold { text-align: right; font-variant-numeric: tabular-nums; color: var(--text-sub); }
+  .ptable td.c-buy { text-align: right; }
+  .ptable td.c-stock.ok { color: var(--success); font-weight: 600; }
+  .ptable td.c-stock.bad { color: var(--danger); font-weight: 700; }
+  .c-price { width: 96px; }
+  .ptable td.c-price { color: #f5572b; font-weight: 700; white-space: nowrap; }
+  .c-stock { width: 84px; } .c-sold { width: 80px; } .c-buy { width: 78px; }
+  .row-icon { display: inline-flex; width: 26px; height: 26px; border-radius: 8px; background: var(--bg);
+    border: 1px solid var(--border); align-items: center; justify-content: center; font-size: 14px; margin-right: 10px; vertical-align: middle; }
+  .cell-name { max-width: 0; }
+  .cell-name .cell-in { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .cell-name .row-icon { margin-right: 0; flex: none; }
+  .cell-name .row-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row-name { border: none; background: none; padding: 0; font-family: inherit; font-size: 13.5px; color: var(--text);
+    cursor: pointer; text-align: left; line-height: 1.45; }
+  .row-name:hover { color: var(--primary); text-decoration: underline; }
+  .buy-link { border: 1px solid var(--primary); background: #fff; color: var(--primary); border-radius: 9px;
+    padding: 5px 14px; font-size: 13px; cursor: pointer; font-family: inherit; transition: all .18s; }
+  .buy-link:hover { background: var(--primary); color: #fff; }
+  .buy-link:disabled { border-color: var(--border); color: #b0b4c3; cursor: not-allowed; }
+  .shop-count { font-size: 12.5px; color: var(--text-sub); margin: 14px 2px 0; }
+  .more-row { text-align: center; margin: 18px 0 40px; }
+  .more-row .btn { min-width: 200px; }
+
+  /* 商品介绍弹窗 */
+  .modal.modal-wide { max-width: 580px; }
+  .info-block { padding: 11px 0; border-bottom: 1px dashed var(--border); }
+  .info-block:last-child { border-bottom: none; }
+  .info-label { font-size: 12px; color: var(--text-sub); margin-bottom: 4px; font-weight: 600; }
+  .info-value { font-size: 14px; line-height: 1.75; word-break: break-word; }
+  .info-value.pre { white-space: pre-line; }
 
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 18px; margin: 22px 0 40px; }
   .goods-card { background: var(--card); border-radius: 16px; padding: 20px; border: 1px solid var(--border); transition: all .25s; position: relative; }
@@ -97,6 +159,16 @@
   #toast { position: fixed; top: 80px; left: 50%; transform: translateX(-50%) translateY(-16px); background: #1a1f36; color: #fff; padding: 10px 22px; border-radius: 10px; font-size: 14px; opacity: 0; pointer-events: none; transition: all .3s; z-index: 999; }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
   @media (max-width: 560px) { .grid { grid-template-columns: repeat(2, 1fr); gap: 12px; } .goods-card { padding: 14px; } .goods-cover { height: 64px; font-size: 34px; } }
+  @media (max-width: 900px) {
+    .shop-wrap { grid-template-columns: 1fr; gap: 12px; }
+    .side { position: static; max-height: none; padding: 10px; }
+    .cat-bar { flex-direction: row; overflow-x: auto; padding-bottom: 4px; }
+    .cat-item { flex: 0 0 auto; min-width: 150px; }
+    .cat-item:hover { transform: none; }
+    .ptable th.c-sold, .ptable td.c-sold { display: none; }
+    .ptable th, .ptable td { padding: 10px; }
+    .c-price { width: 78px; } .c-buy { width: 64px; }
+  }
   .hint-line { font-size:13px; color:var(--text-sub); text-align:center; padding:10px 0; line-height:1.6; }
   .pay-info b { word-break:break-all; }
 </style>
@@ -118,26 +190,48 @@
 </header>
 
 <div class="container">
-  <div class="announcement"><span>📢</span><span id="announcement">正在加载...</span></div>
-  <div class="shop-tools">
-    <input type="search" id="searchBox" class="shop-search" maxlength="60" autocomplete="off"
-      placeholder="搜索商品名称或分类，例如 Gmail、苹果、会员">
-    <select id="sortBox" class="shop-sort">
-      <option value="new">最新上架</option>
-      <option value="hot">销量优先</option>
-      <option value="cheap">价格从低到高</option>
-      <option value="exp">价格从高到低</option>
-    </select>
-  </div>
-  <div class="cat-bar" id="catBar"></div>
-  <div class="shop-count" id="shopCount"></div>
-  <div class="grid" id="goodsGrid"></div>
-  <div class="more-row" id="moreRow" style="display:none">
-    <button type="button" class="btn btn-ghost" id="moreBtn">加载更多</button>
+  <div class="shop-wrap">
+    <aside class="side">
+      <div class="side-head"><span>📁</span><span>商品分类</span></div>
+      <div class="cat-bar" id="catBar"></div>
+    </aside>
+    <main class="main">
+      <div class="announcement"><span>📢</span><span id="announcement">正在加载...</span></div>
+      <div class="shop-tools">
+        <span class="tools-title"><span>≡</span><span>商品列表</span></span>
+        <input type="search" id="searchBox" class="shop-search" maxlength="60" autocomplete="off"
+          placeholder="搜索你想要的商品，例如 Gmail、苹果、会员">
+        <select id="sortBox" class="shop-sort">
+          <option value="new">最新上架</option>
+          <option value="hot">销量优先</option>
+          <option value="cheap">价格从低到高</option>
+          <option value="exp">价格从高到低</option>
+        </select>
+        <div class="view-toggle">
+          <button type="button" id="viewListBtn" title="列表视图">☰</button>
+          <button type="button" id="viewGridBtn" title="卡片视图">▦</button>
+        </div>
+      </div>
+      <div class="shop-count" id="shopCount"></div>
+      <div class="rows" id="goodsGrid"></div>
+      <div class="more-row" id="moreRow" style="display:none">
+        <button type="button" class="btn btn-ghost" id="moreBtn">加载更多</button>
+      </div>
+    </main>
   </div>
 </div>
 
 <footer>本站商品均为虚拟商品，一经售出概不退换</footer>
+
+<!-- 商品介绍弹窗：点商品名打开 -->
+<div class="modal-mask" id="infoModal">
+  <div class="modal modal-wide">
+    <h3>商品介绍<button type="button" class="close" data-close="infoModal">✕</button></h3>
+    <div id="infoBody"></div>
+    <div class="total-row" style="padding-top:16px"><span class="label">单价</span><span class="amount">¥ <span id="infoPrice">0.00</span></span></div>
+    <button type="button" class="btn btn-primary btn-block" id="infoBuyBtn">立即购买</button>
+  </div>
+</div>
 
 <!-- 购买弹窗 -->
 <div class="modal-mask" id="buyModal">

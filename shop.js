@@ -97,6 +97,26 @@ let shown = PAGE_SIZE;
 let catKey = '';
 let keyword = '';
 let sortKey = 'new';
+let viewMode = 'list';   // list = 分类表格（照货源站那种排布，默认）；grid = 卡片
+let infoCurrent = null;  // 「商品介绍」弹窗里正在看的商品
+
+function loadViewMode() {
+  try { viewMode = localStorage.getItem('FAKA_VIEW') === 'grid' ? 'grid' : 'list'; }
+  catch (e) { viewMode = 'list'; }   // 无痕模式：退回默认列表视图
+  return viewMode;
+}
+function setViewMode(m) {
+  viewMode = m === 'grid' ? 'grid' : 'list';
+  try { localStorage.setItem('FAKA_VIEW', viewMode); } catch (e) { /* 忽略 */ }
+  paintViewBtns();
+  paint();
+}
+function paintViewBtns() {
+  const l = $('viewListBtn');
+  const g = $('viewGridBtn');
+  if (l) l.classList.toggle('on', viewMode === 'list');
+  if (g) g.classList.toggle('on', viewMode === 'grid');
+}
 
 function catOf(g) { return String(g.category || '').trim() || '未分类'; }
 
@@ -121,49 +141,132 @@ function sortedList(list) {
 }
 
 function currentList() {
-  const base = byKeyword();
-  const cats = categoryList(base);
+  // 侧栏永远是「全部分类」，搜索只过滤右边列表，导航不会一搜就缩水
+  const cats = categoryList(catalog);
   if (catKey && !cats.some((c) => c[0] === catKey)) catKey = '';
+  const base = byKeyword();
   const list = catKey ? base.filter((g) => catOf(g) === catKey) : base;
-  return { cats, list: sortedList(list) };
+  return { cats, base, list: sortedList(list) };
 }
 
-function chip(label, n, key) {
-  const b = el('button', 'cat-chip' + (catKey === key ? ' on' : ''));
+function chip(label, n, key, icon, sub) {
+  const b = el('button', 'cat-item' + (catKey === key ? ' on' : ''));
   b.type = 'button';
   b.setAttribute('data-cat', key);
-  b.appendChild(document.createTextNode(label));
-  if (n) b.appendChild(el('small', null, String(n)));
+  b.appendChild(el('span', 'cat-icon', icon || '📦'));
+  const box = el('span', 'cat-text');
+  box.appendChild(el('b', null, label));
+  box.appendChild(el('small', null, sub || (n ? n + ' 个商品' : '点击查看全部')));
+  b.appendChild(box);
   return b;
 }
 
-function renderCats(cats) {
+// 分类图标取该分类里出现最多的封面 emoji；按「搜索后的全集」算，切分类时才不会跳
+let iconCache = { key: '', map: new Map() };
+function catIcons(base) {
+  const m = new Map();
+  for (const g of base) {
+    const k = catOf(g);
+    const cover = String(g.cover || '').trim() || '📦';
+    if (!m.has(k)) m.set(k, new Map());
+    const c = m.get(k);
+    c.set(cover, (c.get(cover) || 0) + 1);
+  }
+  const out = new Map();
+  for (const [k, c] of m) {
+    out.set(k, [...c.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0]);
+  }
+  return out;
+}
+function iconsOf() {
+  const k = 'cat' + catalog.length;
+  if (iconCache.key !== k) iconCache = { key: k, map: catIcons(catalog) };
+  return iconCache.map;
+}
+
+function renderCats(cats, base) {
   const bar = $('catBar');
   bar.textContent = '';
-  if (cats.length < 2) return;
-  const TOP = 16;
-  const head = cats.slice(0, TOP);
-  const tail = cats.slice(TOP);
-  bar.appendChild(chip('全部', 0, ''));
-  for (const [name, n] of head) bar.appendChild(chip(name, n, name));
-  if (tail.length) {
-    // 分类太多（自动归类很容易上百个），长尾收进下拉框，不占地方
-    const sel = document.createElement('select');
-    sel.className = 'shop-sort cat-more';
-    const ph = document.createElement('option');
-    ph.value = '';
-    ph.textContent = `其他 ${tail.length} 个分类 ▾`;
-    sel.appendChild(ph);
-    for (const [name, n] of tail) {
-      const o = document.createElement('option');
-      o.value = name;
-      o.textContent = `${name} (${n})`;
-      sel.appendChild(o);
-    }
-    if (tail.some((c) => c[0] === catKey)) sel.value = catKey;
-    sel.addEventListener('change', () => { catKey = sel.value; shown = PAGE_SIZE; paint(); });
-    bar.appendChild(sel);
+  let total = 0;
+  for (const c of cats) total += c[1];
+  const icons = iconsOf();
+  bar.appendChild(chip('全部商品', 0, '', '🗂️', total + ' 个商品'));
+  for (const [name, n] of cats) bar.appendChild(chip(name, n, name, icons.get(name)));
+}
+
+// 按「分类首次出现的顺序」分组：全局排序仍然生效，只是同类商品被收进同一张表
+function groupByCat(list) {
+  const out = [];
+  const idx = new Map();
+  for (const g of list) {
+    const k = catOf(g);
+    if (!idx.has(k)) { idx.set(k, out.length); out.push([k, []]); }
+    out[idx.get(k)][1].push(g);
   }
+  return out;
+}
+
+// 库存列文案：代发看对方，自营看本店卡密
+function stockCellText(g) {
+  if (!supplierSku(g)) {
+    const n = Number(g.stock) || 0;
+    return { text: String(n), cls: n > 0 ? 'ok' : 'bad' };
+  }
+  if (!g.supplier_synced) return { text: '直发', cls: '' };
+  if (g.supplier_online === false) return { text: '下架', cls: 'bad' };
+  const q = Number(g.supplier_stock);
+  if (q === 0) return { text: '0', cls: 'bad' };
+  if (q > 0) return { text: String(q), cls: 'ok' };
+  return { text: '不限量', cls: 'ok' };
+}
+
+function renderRow(g, icon) {
+  const tr = el('tr');
+  const cell = el('td', 'cell-name');
+  const inbox = el('div', 'cell-in');
+  inbox.appendChild(el('span', 'row-icon', icon || String(g.cover || '🎁').trim() || '📦'));
+  const link = el('button', 'row-name', g.name);
+  link.type = 'button';
+  link.title = '查看商品介绍';
+  link.addEventListener('click', () => openInfo(g));
+  inbox.appendChild(link);
+  cell.appendChild(inbox);
+  tr.appendChild(cell);
+  tr.appendChild(el('td', 'c-price', '¥' + money(g.price)));
+  const st = stockCellText(g);
+  tr.appendChild(el('td', 'c-stock' + (st.cls ? ' ' + st.cls : ''), st.text));
+  tr.appendChild(el('td', 'c-sold', String(Number(g.sales) || 0)));
+  const buy = el('td', 'c-buy');
+  const info = stockInfo(g);
+  const b = el('button', 'buy-link', info.sellable ? '购买' : '缺货');
+  b.type = 'button';
+  b.disabled = !info.sellable;
+  b.addEventListener('click', () => openBuy(g));
+  buy.appendChild(b);
+  tr.appendChild(buy);
+  return tr;
+}
+
+function renderTable(cat, items, icon) {
+  const box = el('section', 'pcard');
+  const head = el('div', 'pcard-head');
+  head.appendChild(el('span', 'pcard-icon', icon || String((items[0] && items[0].cover) || '📦').trim() || '📦'));
+  head.appendChild(el('h3', null, cat));
+  head.appendChild(el('small', null, items.length + ' 个商品'));
+  box.appendChild(head);
+  const table = el('table', 'ptable');
+  const thead = el('thead');
+  const htr = el('tr');
+  for (const [cls, label] of [['th-name', '商品名称'], ['c-price', '价格'], ['c-stock', '库存'], ['c-sold', '已售'], ['c-buy', '购买']]) {
+    htr.appendChild(el('th', cls, label));
+  }
+  thead.appendChild(htr);
+  table.appendChild(thead);
+  const tbody = el('tbody');
+  for (const g of items) tbody.appendChild(renderRow(g, icon));
+  table.appendChild(tbody);
+  box.appendChild(table);
+  return box;
 }
 
 function paint() {
@@ -171,6 +274,7 @@ function paint() {
   const moreRow = $('moreRow');
   const count = $('shopCount');
   grid.textContent = '';
+  grid.className = viewMode === 'grid' ? 'grid' : 'rows';
   if (!catalog.length) {
     grid.appendChild(el('div', 'empty', '暂无在售商品'));
     $('catBar').textContent = '';
@@ -179,14 +283,20 @@ function paint() {
     return;
   }
   const cur = currentList();
-  renderCats(cur.cats);
+  renderCats(cur.cats, cur.base);
   if (!cur.list.length) {
     grid.appendChild(el('div', 'empty', '没有匹配的商品，换个关键词试试'));
     if (count) count.textContent = '共 0 个';
     if (moreRow) moreRow.style.display = 'none';
     return;
   }
-  for (const g of cur.list.slice(0, shown)) grid.appendChild(renderCard(g));
+  const visible = cur.list.slice(0, shown);
+  if (viewMode === 'grid') {
+    for (const g of visible) grid.appendChild(renderCard(g));
+  } else {
+    const icons = iconsOf();
+    for (const [cat, items] of groupByCat(visible)) grid.appendChild(renderTable(cat, items, icons.get(cat)));
+  }
   if (moreRow) moreRow.style.display = shown < cur.list.length ? 'block' : 'none';
   if (count) {
     const bits = [];
@@ -247,6 +357,36 @@ function renderCard(g) {
   btn.addEventListener('click', () => openBuy(g));
   box.appendChild(btn);
   return box;
+}
+
+/* ---------- 商品介绍（点商品名打开，照货源站那一版排布） ---------- */
+function infoBlock(label, text, pre) {
+  const box = el('div', 'info-block');
+  box.appendChild(el('div', 'info-label', label));
+  box.appendChild(el('div', 'info-value' + (pre ? ' pre' : ''), text));
+  return box;
+}
+function openInfo(g) {
+  infoCurrent = g;
+  const body = $('infoBody');
+  body.textContent = '';
+  const sku = supplierSku(g);
+  const st = stockCellText(g);
+  body.appendChild(infoBlock('商品名称', String(g.name || '')));
+
+  body.appendChild(infoBlock('商品说明', String(g.description || '').trim() || '卖家暂未填写说明', true));
+  body.appendChild(infoBlock('发货方式', sku
+    ? '货源直发：付款后系统自动向货源方下单，卡密回传后发到你的邮箱'
+    : '本店卡密：付款后立即发放'));
+  body.appendChild(infoBlock('当前库存', st.text === '不限量' ? '货源不限量，随时可发' : (sku ? st.text : st.text + ' 张')));
+  body.appendChild(infoBlock('已售', (Number(g.sales) || 0) + ' 件'));
+  body.appendChild(infoBlock('购买须知', '虚拟商品一经发出概不退换；单次可买 1~10 件，卡密会发到下单邮箱，也可在「订单查询」用订单号 + 邮箱随时查看。'));
+
+  $('infoPrice').textContent = money(g.price);
+  const ok = stockInfo(g).sellable;
+  $('infoBuyBtn').disabled = !ok;
+  $('infoBuyBtn').textContent = ok ? '立即购买' : '暂时缺货';
+  show('infoModal');
 }
 
 /* ---------- 购买 ---------- */
@@ -496,6 +636,17 @@ function bind() {
   });
   const mb = $('moreBtn');
   if (mb) mb.addEventListener('click', () => { shown += PAGE_SIZE; paint(); });
+
+  const vl = $('viewListBtn');
+  if (vl) vl.addEventListener('click', () => setViewMode('list'));
+  const vg = $('viewGridBtn');
+  if (vg) vg.addEventListener('click', () => setViewMode('grid'));
+  const ib = $('infoBuyBtn');
+  if (ib) ib.addEventListener('click', () => {
+    if (!infoCurrent) return;
+    hide('infoModal');
+    openBuy(infoCurrent);
+  });
 }
 
 /* ---------- 推广邀请码 ----------
@@ -514,7 +665,9 @@ function getRef() {
 
 document.addEventListener('DOMContentLoaded', async () => {
   captureRef();
+  loadViewMode();
   bind();
+  paintViewBtns();
   await loadSite();
   loadCatalog();
 });
