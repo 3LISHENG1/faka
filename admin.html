@@ -228,6 +228,8 @@
           <div class="form-item"><label>商户 ID（= dujiao-next 的 API Key）</label><input type="text" id="supApiKey" maxlength="120" placeholder="在对方「我的主页」获取"></div>
           <button type="button" class="btn btn-primary" data-action="save-supplier">保存对接参数</button>
           <button type="button" class="btn btn-ghost" data-action="pull-catalog">拉取对方商品清单</button>
+          <button type="button" class="btn btn-ghost" data-action="run-fulfill">立即代发（手动巡检）</button>
+          <span id="supFulfillStat" style="font-size:12px"></span>
           <div class="form-item" style="margin-top:14px"><label>对方商品清单（sku_id | 标题 | 价格 | 库存）</label><textarea id="supCatalog" readonly style="min-height:170px;font-size:12px" placeholder="点上方按钮拉取，直接复制 sku_id 到商品编辑框"></textarea></div>
           <div class="form-item"><label>想卖哪个？点行末「建商品」直接生成</label><div id="supCatalogList" style="max-height:340px;overflow:auto;border:1px solid #e5e7eb;border-radius:8px;padding:6px 10px"></div></div>
           <div class="form-item"><label>批量建商品</label>

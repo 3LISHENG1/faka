@@ -530,7 +530,40 @@ async function bulkGoods() {
   toast(fail ? `完成 ${ok} 条，失败 ${fail} 条：${firstErr}` : `已新建 ${ok} 个商品，去「商品管理」看`);
   await loadGoodsAdmin();
   renderCatalogList();
-}/* ---------- 事件绑定 ---------- */
+}
+
+// 手动跑一次代发巡检：没挂上 pg_cron 时用它应急，效果与定时器同。
+async function runFulfill() {
+  const b = document.querySelector('[data-action="run-fulfill"]');
+  const stat = $("supFulfillStat");
+  if (b) { b.disabled = true; b.textContent = "巡检中..."; }
+  if (stat) stat.textContent = "";
+  try {
+    const data = await fnCall({ action: "fulfill" });
+    if (!data || data.ok !== true) throw new Error((data && data.error_message) || "返回异常");
+    if (data.skipped) {
+      if (stat) stat.textContent = data.skipped;
+      toast(data.skipped + "：请先把顶部「货源代发」切成开启并保存");
+      return;
+    }
+    const r = data.processed || {};
+    const keys = Object.keys(r);
+    if (!keys.length) {
+      if (stat) stat.textContent = "没有待代发的订单（需已付款 + 商品填了对方 SKU）";
+      toast("没有待代发的订单");
+      return;
+    }
+    if (stat) stat.textContent = "本次 " + keys.length + " 单：" + keys.map((k) => k + " -> " + r[k]).join("；");
+    toast("已处理 " + keys.length + " 单，结果见下方");
+  } catch (e) {
+    if (stat) stat.textContent = "失败：" + e.message;
+    toast("代发失败：" + e.message);
+  } finally {
+    if (b) { b.disabled = false; b.textContent = "立即代发（手动巡检）"; }
+  }
+}
+
+/* ---------- 事件绑定 ---------- */
 function bind() {
   $('loginBtn').addEventListener('click', doLogin);
   $('loginPwd').addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
@@ -546,6 +579,7 @@ function bind() {
     if (a === 'save-site') b.addEventListener('click', saveSite);
     if (a === 'save-supplier') b.addEventListener('click', saveSupplier);
     if (a === 'pull-catalog') b.addEventListener('click', pullCatalog);
+    if (a === 'run-fulfill') b.addEventListener('click', runFulfill);
     if (a === 'bulk-goods') b.addEventListener('click', bulkGoods);
   });
   const sf = $('supFilter');
