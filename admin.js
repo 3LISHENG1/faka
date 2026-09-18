@@ -11,6 +11,9 @@ let goodsLoaded = false;
 let skuIndex = null;
 let lastCatalog = [];
 let orderCache = [];
+let memberCache = [];
+// 提示框 / 单元格里的换行：统一用它，别在字符串里写 \n
+const NL = String.fromCharCode(10);
 
 function el(tag, cls, text) {
   const n = document.createElement(tag);
@@ -60,6 +63,7 @@ function switchView(name) {
   if (name === 'cards') { loadGoodsForSelect().then(loadCards); }
   if (name === 'orders') loadOrders();
   if (name === 'settings') loadSiteSettings();
+  if (name === 'members') { loadMemberSettings(); loadMembers(); }
   if (name === 'supplier') loadSupplier();
 }
 
@@ -386,7 +390,10 @@ async function loadSiteSettings() {
 }
 async function saveSite() {
   const payload = { siteName: $('setSiteName').value || '发卡商城', announcement: $('setAnnouncement').value, contact: $('setContact').value };
-  const { error } = await supa.from('settings').update({ data: payload }).eq('id', 'site');
+  // settings.data 是一整块 jsonb：先读回来合并，免得把「会员推广」那几个键一起覆盖掉
+  const { data: cur } = await supa.from('settings').select('data').eq('id', 'site').maybeSingle();
+  const merged = Object.assign({}, (cur && cur.data) || {}, payload);
+  const { error } = await supa.from('settings').update({ data: merged }).eq('id', 'site');
   toast(error ? errText(error) : '保存成功，买家商城刷新后生效');
 }
 
@@ -770,6 +777,10 @@ function bind() {
     if (a === 'sync-stock') b.addEventListener('click', syncStock);
     if (a === 'bulk-goods') b.addEventListener('click', bulkGoods);
     if (a === 'sync-desc') b.addEventListener('click', syncDesc);
+    if (a === 'price-preview') b.addEventListener('click', () => priceRun(true));
+    if (a === 'price-apply') b.addEventListener('click', () => priceRun(false));
+    if (a === 'price-undo') b.addEventListener('click', priceUndo);
+    if (a === 'save-members') b.addEventListener('click', saveMemberSettings);
   });
   const sf = $('supFilter');
   for (const id of ['goodsFilter', 'goodsStockFilter']) {
@@ -777,6 +788,12 @@ function bind() {
     if (n) n.addEventListener(id === 'goodsFilter' ? 'input' : 'change', () => renderGoodsAdmin());
   }
   if (sf) sf.addEventListener('input', renderCatalogList);
+  const paScope = $('paScope');
+  if (paScope) paScope.addEventListener('change', paSyncUI);
+  for (const id of ['paMode', 'paSign', 'paVal', 'paOnlyOn']) {
+    const n = $(id);
+    if (n) n.addEventListener('input', () => { paHintClear(); });
+  }
   document.querySelectorAll('[data-close]').forEach((b) =>
     b.addEventListener('click', () => $(b.getAttribute('data-close')).classList.remove('show')));
   document.querySelectorAll('.modal-mask').forEach((m) =>
@@ -916,4 +933,285 @@ document.addEventListener('DOMContentLoaded', () => {
   if (ab) ab.addEventListener('click', addAgent);
   const ef = $('earnFilter');
   if (ef) ef.addEventListener('change', loadEarnings);
+  const mf = $('memFilter');
+  if (mf) mf.addEventListener('input', renderMembers);
+  const mr = $('memRank');
+  if (mr) mr.addEventListener('change', renderMembers);
 });
+
+/* ================= 批量调价（可涨可跌，带预览 + 一键撤销） ================= */
+// 数值语义：percent 传百分数（10 = 10%）；amount 传「分」（1.5 元 → 150）
+function paNum() {
+  const raw = Number(($('paVal') && $('paVal').value) || 0);
+  if (!Number.isFinite(raw) || raw <= 0) return 0;
+  return ($('paMode') && $('paMode').value === 'amount') ? Math.round(raw * 100) : raw;
+}
+function paUnit() { return ($('paMode') && $('paMode').value === 'amount') ? '元' : '%'; }
+function paScopeKey() { return ($('paScope') && $('paScope').value) || 'all'; }
+function paIds() { return goodsFilteredList().map((g) => Number(g.id)).filter((x) => x > 0); }
+function paHintClear() { const s = $('priceStat'); if (s) s.textContent = ''; }
+function fillPaCats() {
+  const sel = $('paCat');
+  if (!sel) return;
+  const cats = [];
+  for (const g of goodsCache || []) {
+    const c = String(g.category || '').trim() || '未分类';
+    if (cats.indexOf(c) < 0) cats.push(c);
+  }
+  cats.sort();
+  const keep = sel.value;
+  sel.textContent = '';
+  for (const c of cats) {
+    const o = el('option', null, c);
+    o.value = c;
+    sel.appendChild(o);
+  }
+  if (cats.indexOf(keep) >= 0) sel.value = keep;
+}
+function paSyncUI() {
+  const sc = paScopeKey();
+  const map = { paCatItem: sc === 'category', paKwItem: sc === 'keyword', paIdsItem: sc === 'pending' };
+  for (const id in map) { const n = $(id); if (n) n.style.display = map[id] ? '' : 'none'; }
+  if (sc === 'category') fillPaCats();
+  if (sc === 'pending') {
+    const h = $('paIdsHint');
+    if (h) h.textContent = '将对当前列表里的 ' + paIds().length + ' 个商品调价（先用上方搜索 / 筛选缩小范围）';
+  }
+  paHintClear();
+}
+function paPayload(dry) {
+  const sc = paScopeKey();
+  return {
+    action: 'priceadjust',
+    dry: dry === true,
+    mode: ($('paMode') && $('paMode').value) || 'percent',
+    sgn: ($('paSign') && Number($('paSign').value) < 0) ? -1 : 1,
+    val: paNum(),
+    scope: sc === 'pending' ? 'ids' : sc,
+    kw: sc === 'keyword' ? String(($('paKw') && $('paKw').value) || '').trim() : '',
+    cat: sc === 'category' ? String(($('paCat') && $('paCat').value) || '') : '',
+    ids: sc === 'pending' ? paIds() : [],
+    only_on: !($('paOnlyOn') && $('paOnlyOn').value === '0'),
+  };
+}
+function paSample(data) {
+  const s = Array.isArray(data.sample) ? data.sample : [];
+  if (!s.length) {
+    return Number(data.matched) ? '（命中的商品改前改后一样，不用动）'
+      : '当前范围里一个商品都没命中：换个范围，或把「连已下架的一起调」选上。';
+  }
+  return '举几个例子（改前 → 改后）：' + NL
+    + s.map((x) => '  ' + x.name + '：¥' + money(x.from) + ' → ¥' + money(x.to)).join(NL);
+}
+async function priceRun(dry) {
+  const stat = $('priceStat');
+  const box = $('paPreview');
+  const val = paNum();
+  if (!val) { toast('先填一个大于 0 的数值'); return; }
+  if (dry !== true) {
+    const scName = ($('paScope') && $('paScope').selectedOptions && $('paScope').selectedOptions[0])
+      ? $('paScope').selectedOptions[0].textContent : '全部上架商品';
+    const tip = '确定执行调价？' + NL + NL
+      + '方式：' + (paPayload(false).sgn < 0 ? '下调 ' : '上调 ') + val + paUnit() + NL
+      + '范围：' + scName + NL + NL
+      + '这会真的改掉商品售价。调错了可以点「撤销上一次调价」还原。';
+    if (!confirm(tip)) return;
+  }
+  const b1 = document.querySelector('[data-action="price-preview"]');
+  const b2 = document.querySelector('[data-action="price-apply"]');
+  if (b1) b1.disabled = true;
+  if (b2) b2.disabled = true;
+  if (stat) stat.textContent = dry ? '预览中…' : '调价中…';
+  try {
+    const data = await fnCall(paPayload(dry));
+    if (!data || data.ok !== true) {
+      throw new Error((data && data.error_message) || '返回异常：多半是代发函数还是旧版，按 README 第 5 步重新粘贴部署');
+    }
+    const line = (dry ? '预览：命中 ' : '已执行：命中 ') + (data.matched || 0) + ' 个，实际改动 ' + (data.changed || 0) + ' 个'
+      + (Number(data.below_cost) > 0 ? '（⚠️ 其中 ' + data.below_cost + ' 个改完低于进货价）' : '');
+    if (stat) stat.textContent = line;
+    if (box) box.textContent = paSample(data) + (dry && Number(data.changed) ? NL + '看清楚就点「确认执行调价」。' : '');
+    if (dry !== true) {
+      toast('调价完成，改动 ' + (data.changed || 0) + ' 个商品');
+      await loadGoodsAdmin();
+      paSyncUI();
+    } else if (!Number(data.changed)) {
+      toast('没有商品会被改动，检查下数值和范围');
+    }
+  } catch (e) {
+    if (stat) stat.textContent = '失败：' + e.message;
+    toast('调价失败：' + e.message);
+  } finally {
+    if (b1) b1.disabled = false;
+    if (b2) b2.disabled = false;
+  }
+}
+async function priceUndo() {
+  const stat = $('priceStat');
+  try {
+    if (stat) stat.textContent = '正在找上一次调价…';
+    const list = await fnCall({ action: 'pricebatches' });
+    if (!list || list.ok !== true) throw new Error((list && list.error_message) || '返回异常：代发函数需要重新部署');
+    const live = (list.batches || []).filter((x) => !x.undone && Number(x.changed) > 0);
+    if (!live.length) {
+      if (stat) stat.textContent = '没有可撤销的调价记录';
+      toast('没有可撤销的调价记录');
+      return;
+    }
+    const b0 = live[0];
+    const tip = '最近一次调价：' + b0.note + '（改了 ' + b0.changed + ' 个商品，' + fmtTime(b0.created_at) + '）' + NL + NL
+      + '确定还原吗？你后来手改过价格的商品会自动跳过。';
+    if (!confirm(tip)) return;
+    const r = await fnCall({ action: 'priceundo', batch: b0.id });
+    if (!r || r.ok !== true) throw new Error((r && r.error_message) || '撤销失败');
+    if (stat) stat.textContent = '已撤销：还原 ' + r.restored + ' 个' + (Number(r.skipped) ? '，跳过 ' + r.skipped + ' 个（手改过）' : '');
+    toast('撤销完成');
+    await loadGoodsAdmin();
+  } catch (e) {
+    if (stat) stat.textContent = '撤销失败：' + e.message;
+    toast('撤销失败：' + e.message);
+  }
+}
+
+/* ================= 会员注册 / 推广（数据在 members 表） ================= */
+function memberLink(code) { return SITE_URL + '?ref=' + encodeURIComponent(String(code || '')); }
+async function loadMemberSettings() {
+  const { data, error } = await supa.from('settings').select('data').eq('id', 'site').maybeSingle();
+  if (error) { toast(errText(error)); return; }
+  const s = (data && data.data) || {};
+  if ($('memOpen')) $('memOpen').value = s.member_open === false ? '0' : '1';
+  if ($('memSignup')) $('memSignup').value = Number(s.signup_bonus_fen || 0) / 100 || '';
+  if ($('memInvite')) $('memInvite').value = Number(s.invite_bonus_fen || 0) / 100 || '';
+}
+async function saveMemberSettings() {
+  const fen = (id) => {
+    const raw = Number($(id) && $(id).value);
+    if (!Number.isFinite(raw) || raw <= 0) return 0;
+    return Math.max(0, Math.min(999900, Math.round(raw * 100)));
+  };
+  const payload = {
+    member_open: ($('memOpen') && $('memOpen').value) !== '0',
+    signup_bonus_fen: fen('memSignup'),
+    invite_bonus_fen: fen('memInvite'),
+  };
+  const { data: cur, error: e1 } = await supa.from('settings').select('data').eq('id', 'site').maybeSingle();
+  if (e1) { toast(errText(e1)); return; }
+  const merged = Object.assign({}, (cur && cur.data) || {}, payload);
+  const { error } = await supa.from('settings').update({ data: merged }).eq('id', 'site');
+  const stat = $('memSetStat');
+  if (error) {
+    if (stat) stat.textContent = '保存失败';
+    toast(errText(error));
+    return;
+  }
+  if (stat) stat.textContent = '已保存 ' + fmtTime(Date.now());
+  toast('注册设置已保存，前台刷新后生效');
+}
+function memberInviteCount() {
+  const m = {};
+  for (const r of memberCache || []) {
+    const k = Number(r.ref_member || 0);
+    if (k > 0) m[k] = (m[k] || 0) + 1;
+  }
+  return m;
+}
+function memberFilteredList() {
+  const kw = String(($('memFilter') && $('memFilter').value) || '').trim().toLowerCase();
+  const rk = ($('memRank') && $('memRank').value) || '';
+  const cnt = memberInviteCount();
+  const week = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  return (memberCache || []).filter((m) => {
+    if (kw && !((String(m.username || '') + ' ' + String(m.invite_code || '')).toLowerCase().includes(kw))) return false;
+    if (rk === 'top' && !(Number(cnt[m.id]) > 0)) return false;
+    if (rk === 'new' && !(Number(m.created_at) >= week)) return false;
+    return true;
+  });
+}
+function topInviter(cnt) {
+  let best = null, bn = 0;
+  for (const m of memberCache || []) {
+    const c = Number(cnt[m.id] || 0);
+    if (c > bn) { bn = c; best = m; }
+  }
+  return best ? best.username + '（' + bn + ' 人）' : '暂无';
+}
+async function loadMembers() {
+  const { data, error } = await supa.from('members')
+    .select('id,username,invite_code,ref_member,ref_agent,balance_fen,status,created_at,last_login,login_count')
+    .order('id', { ascending: false }).limit(1000);
+  if (error) { toast(errText(error)); return; }
+  memberCache = data || [];
+  renderMembers();
+}
+function renderMembers() {
+  const tbody = document.querySelector('#membersTable tbody');
+  if (!tbody) return;
+  tbody.textContent = '';
+  const cnt = memberInviteCount();
+  const list = memberFilteredList();
+  const stat = $('memStat');
+  if (stat) stat.textContent = '共 ' + (memberCache || []).length + ' 人（筛出 ' + list.length + '）· 邀请最多：' + topInviter(cnt);
+  const empty = $('membersEmpty');
+  if (empty) { empty.textContent = (memberCache || []).length ? '没有符合条件的会员' : '还没有会员注册'; empty.style.display = list.length ? 'none' : 'block'; }
+  for (const m of list.slice(0, 500)) {
+    const tr = el('tr');
+    const code = String(m.invite_code || '');
+    const invited = Number(cnt[m.id] || 0);
+    const link = el('td');
+    link.appendChild(el('b', null, code));
+    link.appendChild(document.createTextNode(' ' + memberLink(code) + ' '));
+    link.appendChild(btn('btn btn-ghost btn-sm', '复制', () => copyText(memberLink(code))));
+    if (Number(m.ref_member) > 0) link.appendChild(el('div', null, '↑ 由会员 #' + m.ref_member + ' 邀请'));
+    else if (m.ref_agent) link.appendChild(el('div', null, '↑ 推广员码 ' + m.ref_agent));
+    tr.appendChild(el('td', null, String(m.username || '')));
+    tr.appendChild(link);
+    tr.appendChild(el('td', null, invited + ' 人'));
+    tr.appendChild(el('td', null, '¥' + money(m.balance_fen)));
+    tr.appendChild(el('td', null, fmtTime(m.created_at)));
+    tr.appendChild(el('td', null, fmtTime(m.last_login) + '（登录 ' + (m.login_count || 0) + ' 次）'));
+    const on = Number(m.status) === 1;
+    const st = el('td', null, on ? '正常' : '已禁用');
+    if (!on) st.style.color = '#94a3b8';
+    tr.appendChild(st);
+    const ops = el('td');
+    ops.appendChild(btn('btn btn-ghost btn-sm', '发奖励', () => giveBonus(m, 1)));
+    ops.appendChild(document.createTextNode(' '));
+    ops.appendChild(btn('btn btn-ghost btn-sm', '扣奖励', () => giveBonus(m, -1)));
+    ops.appendChild(document.createTextNode(' '));
+    ops.appendChild(btn(on ? 'btn btn-danger btn-sm' : 'btn btn-primary btn-sm', on ? '禁用' : '启用', () => toggleMember(m)));
+    tr.appendChild(ops);
+    tbody.appendChild(tr);
+  }
+  if (list.length > 500) {
+    const tr = el('tr');
+    const td = el('td', null, '…… 还有 ' + (list.length - 500) + ' 个没显示，用上方搜索缩小范围');
+    td.colSpan = 8;
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  }
+}
+function giveBonus(m, sgn) {
+  const v = prompt((sgn > 0 ? '给 ' : '从 ') + m.username + (sgn > 0 ? ' 发放多少奖励金（元）？' : ' 扣回多少奖励金（元）？'), '5');
+  if (v === null) return;
+  const fen = Math.round(Number(v) * 100);
+  if (!Number.isFinite(fen) || fen <= 0) { toast('金额不对'); return; }
+  runMemberBonus(m, sgn * fen, Math.max(0, Number(m.balance_fen || 0) + sgn * fen));
+}
+async function runMemberBonus(m, delta, next) {
+  const { error } = await supa.from('members').update({ balance_fen: next }).eq('id', m.id);
+  if (error) { toast(errText(error)); return; }
+  await supa.from('member_rewards').insert({
+    member_id: m.id, kind: 'bonus', amount_fen: delta, from_member: 0,
+    note: delta > 0 ? '后台手动发放' : '后台手动扣回', created_at: Date.now(),
+  });
+  toast('奖励金已更新');
+  await loadMembers();
+}
+async function toggleMember(m) {
+  const on = Number(m.status) === 1;
+  if (on && !confirm('禁用「' + m.username + '」？该会员会立刻掉线，不能再用这个账号下单归因。')) return;
+  const { error } = await supa.from('members').update({ status: on ? 0 : 1 }).eq('id', m.id);
+  if (error) { toast(errText(error)); return; }
+  toast(on ? '已禁用该会员' : '已启用该会员');
+  await loadMembers();
+}

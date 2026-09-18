@@ -71,6 +71,7 @@ async function loadSite() {
   try { localStorage.setItem('FAKA_SITE_NAME', $('siteName').textContent); } catch (e) { /* 无痕模式忽略 */ }
   $('announcement').textContent = data.announcement || '欢迎光临本店！';
   document.title = (data.siteName || '发卡商城') + ' - 自动发卡，秒到账';
+  if (window.FakaI18n) window.FakaI18n.fixTitle();
 }
 
 async function loadCatalog() {
@@ -483,6 +484,8 @@ function goDetail(g) { location.hash = '#/g/' + g.id; }
 
 function route() {
   const m = /^#\/g\/(\d+)$/.exec(location.hash || '');
+  // #/me 之类由会员模块自己画，它接管时这里直接返回
+  if (window.FakaMember && window.FakaMember.route(location.hash || '')) return;
   const wrap = $('shopWrap');
   const view = $('detailView');
   if (!m) {
@@ -885,6 +888,8 @@ function bind() {
   const vg = $('viewGridBtn');
   if (vg) vg.addEventListener('click', () => setViewMode('grid'));
   window.addEventListener('hashchange', route);
+  // 语言切换：中文是原文，切英文时重画一遍最稳（避免把已经翻过的再翻一次）
+  document.addEventListener('faka-lang', () => { loadSite().then(route); });
 }
 
 /* ---------- 推广邀请码 ----------

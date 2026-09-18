@@ -104,6 +104,7 @@
       <button class="nav-item" data-view="cards">🎫 卡密管理</button>
       <button class="nav-item" data-view="orders">🧾 订单管理</button>
       <button class="nav-item" data-view="agents">📣 推广返佣</button>
+      <button class="nav-item" data-view="members">👥 会员推广</button>
       <button class="nav-item" data-view="supplier">🔗 货源对接</button>
       <button class="nav-item" data-view="settings">⚙️ 系统设置</button>
       <button type="button" class="nav-item logout" data-action="logout">🚪 退出登录</button>
@@ -150,6 +151,36 @@
             <tbody></tbody>
           </table></div>
           <div class="empty" id="goodsEmpty" style="display:none">还没有商品</div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h4>批量调价（可涨可跌）<span id="priceStat" style="font-size:12px;font-weight:400;color:#64748b;margin-left:8px"></span></h4></div>
+          <div class="hint" style="margin-bottom:12px">先「预览影响」看清会动到几个商品、改成多少钱，再「确认执行」。执行完反悔了点「撤销上一次调价」还原（你后来手改过的价格不会被覆盖）。</div>
+          <div class="form-row">
+            <div class="form-item" style="flex:0 0 170px"><label>调价方式</label>
+              <select id="paMode"><option value="percent">按百分比 %</option><option value="amount">按固定金额 元</option></select></div>
+            <div class="form-item" style="flex:0 0 160px"><label>方向</label>
+              <select id="paSign"><option value="1">上调（加价）</option><option value="-1">下调（减价）</option></select></div>
+            <div class="form-item" style="flex:0 0 150px"><label>数值</label>
+              <input type="number" id="paVal" min="0" step="0.5" placeholder="例如 10"></div>
+            <div class="form-item" style="flex:0 0 210px"><label>调价范围</label>
+              <select id="paScope">
+                <option value="all">全部上架商品</option>
+                <option value="category">指定分类</option>
+                <option value="keyword">指定关键词</option>
+                <option value="pending">当前筛选结果</option>
+              </select></div>
+            <div class="form-item" style="flex:0 0 220px;display:none" id="paCatItem"><label>选分类</label><select id="paCat"></select></div>
+            <div class="form-item" style="flex:0 0 280px;display:none" id="paKwItem"><label>关键词</label>
+              <input type="text" id="paKw" maxlength="60" placeholder="商品名 / 分类里含这个词"></div>
+            <div class="form-item" style="flex:1;display:none" id="paIdsItem"><label>当前筛选结果</label>
+              <div id="paIdsHint" style="font-size:12px;color:#64748b;padding:9px 0"></div></div>
+            <div class="form-item" style="flex:0 0 200px"><label>下架商品要不要一起调</label>
+              <select id="paOnlyOn"><option value="1">只调上架中的</option><option value="0">连已下架的一起调</option></select></div>
+          </div>
+          <button type="button" class="btn btn-primary" data-action="price-preview">预览影响</button>
+          <button type="button" class="btn btn-danger" data-action="price-apply">确认执行调价</button>
+          <button type="button" class="btn btn-ghost" data-action="price-undo">撤销上一次调价</button>
+          <div id="paPreview" style="margin-top:12px;font-size:13px;color:#475569;white-space:pre-wrap"></div>
         </div>
       </section>
 
@@ -231,6 +262,38 @@
           <div class="empty" id="earningsEmpty" style="display:none">暂无佣金记录</div>
         </div>
       </section>
+
+      <section id="view-members" class="view" style="display:none">
+        <div class="page-title">会员推广</div>
+        <div class="panel">
+          <div class="panel-head"><h4>注册与奖励 <span id="memSetStat" style="font-size:12px;font-weight:400;color:#64748b;margin-left:8px"></span></h4></div>
+          <div class="form-row">
+            <div class="form-item" style="flex:0 0 230px"><label>开放游客注册</label>
+              <select id="memOpen"><option value="1">开放（前台可注册登录）</option><option value="0">关闭（隐藏注册入口）</option></select></div>
+            <div class="form-item" style="flex:0 0 200px"><label>新用户注册礼（元）</label>
+              <input type="number" id="memSignup" min="0" max="9999" step="0.5" placeholder="0 = 不发"></div>
+            <div class="form-item" style="flex:0 0 200px"><label>每邀请 1 人注册奖励（元）</label>
+              <input type="number" id="memInvite" min="0" max="9999" step="0.5" placeholder="0 = 不发"></div>
+          </div>
+          <button type="button" class="btn btn-primary" data-action="save-members">保存注册设置</button>
+          <div class="hint" style="margin-top:12px">奖励金先记在会员账户上，买家在前台「我的推广」能实时看到。等收款通道接好后可以在下单时抵扣；现在支付还没接，所以只能先攒着或由你人工兑现（用下面列表的「发奖励 / 扣奖励」）。</div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h4>会员列表 <span id="memStat" style="font-size:12px;font-weight:400;color:#64748b;margin-left:8px"></span></h4></div>
+          <div class="form-row" style="margin-bottom:14px">
+            <div class="form-item" style="flex:1"><label>搜索会员</label>
+              <input type="text" id="memFilter" maxlength="40" placeholder="用户名 / 邀请码；留空 = 全部"></div>
+            <div class="form-item" style="flex:0 0 220px"><label>筛选</label>
+              <select id="memRank"><option value="">全部会员</option><option value="top">只看过往邀请 ≥1 人</option><option value="new">最近 7 天注册</option></select></div>
+          </div>
+          <div style="overflow-x:auto"><table id="membersTable">
+            <thead><tr><th>用户名</th><th>邀请码 / 推广链接</th><th>已邀请</th><th>奖励金</th><th>注册时间</th><th>最近登录</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody></tbody>
+          </table></div>
+          <div class="empty" id="membersEmpty" style="display:none">还没有会员注册</div>
+        </div>
+      </section>
+
 
       <section id="view-supplier" class="view" style="display:none">
         <div class="page-title">货源对接</div>
