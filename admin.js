@@ -1029,7 +1029,7 @@ function paSyncUI() {
   if (sc === 'category') fillPaCats();
   if (sc === 'pending') {
     const h = $('paIdsHint');
-    if (h) h.textContent = '将对当前列表里的 ' + paIds().length + ' 个商品调价（先用上方搜索 / 筛选缩小范围）';
+    if (h) h.textContent = '将对当前列表里的 ' + paIds().length + ' 个商品调价（先用下方商品列表的搜索 / 筛选缩小范围）';
   }
   paHintClear();
 }
@@ -1480,7 +1480,7 @@ function lkSyncUI() {
   show('lkIdsItem', scope === 'pending');
   if (scope === 'pending') {
     const h = $('lkIdsHint');
-    if (h) h.textContent = '当前筛出 ' + lkIds().length + ' 个商品（改上面的搜索框 / 筛选就能变）';
+    if (h) h.textContent = '当前筛出 ' + lkIds().length + ' 个商品（改下面的搜索框 / 筛选就能变）';
   }
   const s = $('lkPreview');
   if (s) s.textContent = '';
@@ -1500,7 +1500,7 @@ function lkPayload(dry) {
 function lkCheck(payload) {
   if (payload.p_scope === 'keyword' && !payload.p_kw) { toast('请先填关键词'); return false; }
   if (payload.p_scope === 'category' && !payload.p_cat) { toast('请先选分类'); return false; }
-  if (payload.p_scope === 'pending' && !payload.p_ids.length) { toast('当前筛选结果为空，请先在上方搜索 / 筛选'); return false; }
+  if (payload.p_scope === 'pending' && !payload.p_ids.length) { toast('当前筛选结果为空，请先在下面的商品列表里搜索 / 筛选'); return false; }
   if (payload.p_scope === 'pending' && payload.p_ids.length > 5000) { toast('一次最多 5000 个，请用搜索缩小范围'); return false; }
   return true;
 }

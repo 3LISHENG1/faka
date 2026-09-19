@@ -133,27 +133,6 @@
       <section id="view-goods" class="view" style="display:none">
         <div class="page-title">商品管理</div>
         <div class="panel">
-          <div class="panel-head"><h4>商品列表 <span id="goodsStat" style="font-size:12px;font-weight:400;color:#64748b"></span></h4>
-          <button type="button" class="btn btn-primary" data-action="add-goods">＋ 添加商品</button></div>
-          <div class="form-row" style="margin-bottom:14px">
-            <div class="form-item" style="flex:1"><label>搜索商品</label>
-              <input type="text" id="goodsFilter" maxlength="60" placeholder="商品名 / 分类 / 对方SKU（如 13660000）；留空 = 全部"></div>
-            <div class="form-item" style="flex:0 0 230px"><label>筛选</label>
-              <select id="goodsStockFilter">
-                <option value="">全部商品</option>
-                <option value="drop">代发商品（看对方库存）</option>
-                <option value="own">本店卡密商品</option>
-                <option value="oos">对方缺货 / 已下架</option>
-                <option value="low">对方限量（≤5 个）</option>
-              </select></div>
-          </div>
-          <div style="overflow-x:auto"><table id="goodsTable">
-            <thead><tr><th>商品</th><th>分类</th><th>价格</th><th>库存<span style="display:block;font-weight:400;font-size:11px;color:#94a3b8">代发=对方库存</span></th><th>已售</th><th>状态</th><th>操作</th></tr></thead>
-            <tbody></tbody>
-          </table></div>
-          <div class="empty" id="goodsEmpty" style="display:none">还没有商品</div>
-        </div>
-        <div class="panel">
           <div class="panel-head"><h4>批量调价（可涨可跌）<span id="priceStat" style="font-size:12px;font-weight:400;color:#64748b;margin-left:8px"></span></h4></div>
           <div class="hint" style="margin-bottom:12px">先「预览影响」看清会动到几个商品、改成多少钱，再「确认执行」。执行完反悔了点「撤销上一次调价」还原（你后来手改过的价格不会被覆盖）。</div>
           <div class="form-row">
@@ -210,6 +189,27 @@
           <button type="button" class="btn btn-danger" data-action="listing-apply">确认执行</button>
           <button type="button" class="btn btn-ghost" data-action="listing-undo">撤销上一次</button>
           <div id="lkPreview" style="margin-top:12px;font-size:13px;color:#475569;white-space:pre-wrap"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h4>商品列表 <span id="goodsStat" style="font-size:12px;font-weight:400;color:#64748b"></span></h4>
+          <button type="button" class="btn btn-primary" data-action="add-goods">＋ 添加商品</button></div>
+          <div class="form-row" style="margin-bottom:14px">
+            <div class="form-item" style="flex:1"><label>搜索商品</label>
+              <input type="text" id="goodsFilter" maxlength="60" placeholder="商品名 / 分类 / 对方SKU（如 13660000）；留空 = 全部"></div>
+            <div class="form-item" style="flex:0 0 230px"><label>筛选</label>
+              <select id="goodsStockFilter">
+                <option value="">全部商品</option>
+                <option value="drop">代发商品（看对方库存）</option>
+                <option value="own">本店卡密商品</option>
+                <option value="oos">对方缺货 / 已下架</option>
+                <option value="low">对方限量（≤5 个）</option>
+              </select></div>
+          </div>
+          <div style="overflow-x:auto"><table id="goodsTable">
+            <thead><tr><th>商品</th><th>分类</th><th>价格</th><th>库存<span style="display:block;font-weight:400;font-size:11px;color:#94a3b8">代发=对方库存</span></th><th>已售</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody></tbody>
+          </table></div>
+          <div class="empty" id="goodsEmpty" style="display:none">还没有商品</div>
         </div>
       </section>
 
