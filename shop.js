@@ -27,6 +27,12 @@ const ERR_TEXT = {
   NO_STOCK: '库存不足，暂时无法下单',
   GOODS_UNAVAILABLE: '该商品已下架',
   ORDER_NOT_FOUND: '未找到订单',
+  LOW_BALANCE: '余额不足，请先充值',
+  PAY_CLOSED: '站长暂时关闭了余额支付',
+  BAD_TOKEN: '登录状态已失效，请重新登录',
+  ORDER_CLOSED: '订单已关闭，请重新下单',
+  ORDER_EXPIRED: '订单已超时关闭，请重新下单',
+  ORDER_EMAIL: '这个订单和下单邮箱对不上',
 };
 function errText(err) {
   const m = String((err && err.message) || err || '');
@@ -698,6 +704,65 @@ async function submitOrder() {
   }
 }
 
+/* ---------- 余额支付（第 18 步：先充值，再用余额买东西） ---------- */
+const MEM = () => window.FakaMember || null;
+const memberToken = () => { try { return localStorage.getItem('FAKA_MEMBER_TOKEN') || ''; } catch (e) { return ''; } };
+function drawBalance(m) {
+  const num = $('balanceNum');
+  const pay = $('balancePayBtn');
+  const rc = $('goRechargeBtn');
+  const flags = (m && m.walletFlags) ? (m.walletFlags() || {}) : {};
+  if (flags.balance_pay_open === false) {
+    const row = $('balanceRow');
+    if (row) row.style.display = 'none';
+    return;
+  }
+  const bal = m && m.balanceFen ? m.balanceFen() : 0;
+  const need = Number((order && order.amount) || 0);
+  if (num) num.textContent = '¥' + money(bal);
+  if (pay) {
+    pay.disabled = bal < need;
+    pay.textContent = pay.disabled ? '余额不足，先去充值' : ('用余额支付 ¥' + money(need));
+  }
+  if (rc) rc.style.display = (pay && pay.disabled) ? '' : 'none';
+}
+function paintBalanceRow() {
+  const row = $('balanceRow');
+  if (!row) return;
+  const m = MEM();
+  if (!m || !order || !memberToken()) { row.style.display = 'none'; return; }
+  row.style.display = '';
+  drawBalance(m);
+  // 后台悄悄把余额拉最新（第一次进弹窗时可能还没拉到）
+  if (m.refreshWallet) Promise.resolve(m.refreshWallet()).then(() => drawBalance(m)).catch(() => { /* 拉不到就用本地这份 */ });
+}
+async function balancePay() {
+  const m = MEM();
+  if (!m || !order) return;
+  const tk = memberToken();
+  if (!tk) { toast('请先登录后再用余额支付'); return; }
+  const need = Number(order.amount || 0);
+  if (m.balanceFen() < need) { toast('余额不足，请先充值'); return; }
+  if (!confirm('确认用余额支付 ¥' + money(need) + ' ？')) return;
+  const b = $('balancePayBtn');
+  if (b) { b.disabled = true; b.textContent = '支付中...'; }
+  try {
+    const { data, error } = await supa.rpc('rpc_pay_order_by_balance', {
+      p_token: tk, p_order_id: order.order_id, p_email: order.email,
+    });
+    if (error) { toast(errText(error)); return; }
+    if (!data || data.ok !== true) { toast(errText({ message: (data && data.error) || 'BAD_AMOUNT' })); return; }
+    if (m.refreshWallet) m.refreshWallet();
+    stopPolling();
+    hide('payModal');
+    order = null;
+    deliver(data);
+    loadCatalog();
+  } finally {
+    if (b) { b.disabled = false; b.textContent = '用余额支付，秒发货'; }
+  }
+}
+
 /* ---------- 支付（等待回调，不在本地判定成功） ---------- */
 function openPayModal() {
   $('payAmount').textContent = money(order.amount);
@@ -705,6 +770,7 @@ function openPayModal() {
   $('payGoodsName').textContent = order.goods_name;
   $('payQty').textContent = `${order.qty} 张`;
   $('payStatus').textContent = '等待支付结果…';
+  paintBalanceRow();
   show('payModal');
   startPolling();
 }
@@ -857,6 +923,10 @@ function bind() {
   $('qtyPlus').addEventListener('click', () => changeQty(1));
   $('submitOrderBtn').addEventListener('click', submitOrder);
   $('payRefreshBtn').addEventListener('click', () => refreshPayStatus(false));
+  document.querySelectorAll('[data-act="balance-pay"]').forEach((b) =>
+    b.addEventListener('click', balancePay));
+  // 充值到账以后重画一次支付弹窗里的余额
+  document.addEventListener('faka-wallet', () => { if ($('payModal') && $('payModal').classList.contains('show')) paintBalanceRow(); });
   $('copyAllBtn').addEventListener('click', () => copyText(currentCards.join('\n'), null));
   $('doQueryBtn').addEventListener('click', doQuery);
   $('queryEmail').addEventListener('keydown', (e) => { if (e.key === 'Enter') doQuery(); });

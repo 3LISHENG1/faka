@@ -7,7 +7,12 @@
   const NL = String.fromCharCode(10);
   const TOK = 'FAKA_MEMBER_TOKEN';
   const REF = 'FAKA_LAST_REF';
-  const t = (s, v) => (window.FakaI18n ? window.FakaI18n.t(s, v) : String(s));
+  const t = (s, v) => {
+    if (window.FakaI18n) return window.FakaI18n.t(s, v);
+    let out = String(s);
+    if (v) out = out.replace(/\{([a-zA-Z0-9_]+)\}/g, (x, k) => (v[k] === undefined ? x : String(v[k])));
+    return out;
+  };
 
   const $ = (id) => document.getElementById(id);
   function el(tag, cls, text) {
@@ -69,6 +74,15 @@
     BAD_OLD_PASS: '原密码不对',
     BAD_TOKEN: '登录状态已失效，请重新登录',
     NO_CLIENT: '请先在站点根目录的 config.js 里填好 Supabase 地址',
+    LOW_BALANCE: '余额不足，请先充值',
+    PAY_CLOSED: '站长暂时关闭了余额支付',
+    BAD_AMOUNT: '充值金额不合法',
+    NOT_FOUND: '没找到这笔充值单',
+    ORDER_NOT_FOUND: '未找到订单',
+    ORDER_CLOSED: '订单已关闭，请重新下单',
+    ORDER_EMAIL: '这个订单和下单邮箱对不上',
+    ORDER_EXPIRED: '订单已超时关闭，请重新下单',
+    TOO_MANY_PENDING: '在途待支付的单子太多了，请先完成支付或稍后再试',
   };
   const errOf = (e) => {
     const m = String((e && e.message) || e || '');
@@ -94,10 +108,219 @@
   }
   const linkOf = (code) => location.href.replace(/[#?].*$/, '') + '?ref=' + encodeURIComponent(code || '');
 
+  /* ---------- 钱包 / 充值 ---------- */
+  let wallet = null;      // rpc_wallet_info 的结果（余额 + 流水）
+  let wal = {
+    balance_pay_open: true, recharge_channel: 'manual',
+    recharge_min_fen: 100, recharge_max_fen: 5000000,
+    recharge_presets: [1000, 3000, 5000, 10000, 30000, 50000], recharge_notice: '',
+  };
+  let rcNo = '';          // 当前正在等的充值单号
+  let rcPick = 0;         // 点选的快捷金额
+  let rcTimer = null;     // 轮询定时器
+  let rcTick = 0;
+  let rcBusy = false;
+  let walBusy = false;
+
+  const rcAmount = () => {
+    const custom = Math.round(Number(($('rcCustom') && $('rcCustom').value) || 0) * 100);
+    if (Number.isFinite(custom) && custom > 0) return custom;
+    return rcPick;
+  };
+  function paintRcAmounts() {
+    const box = $('rcAmounts');
+    if (!box) return;
+    box.textContent = '';
+    const list = (Array.isArray(wal.recharge_presets) && wal.recharge_presets.length ? wal.recharge_presets : [1000, 3000, 5000, 10000, 30000, 50000]).slice(0, 12);
+    for (const fen of list) {
+      const b = el('button', 'btn' + (rcPick === Number(fen) ? ' on' : ''), '¥' + money(fen));
+      b.type = 'button';
+      b.addEventListener('click', () => {
+        rcPick = Number(fen);
+        const c = $('rcCustom'); if (c) c.value = '';
+        paintRcAmounts();
+      });
+      box.appendChild(b);
+    }
+  }
+  function rcSay(text, bad) {
+    const m = $('rcMsg');
+    if (!m) { if (text) toast(text); return; }
+    m.textContent = String(text || '');
+    m.style.display = text ? '' : 'none';
+    m.style.color = bad ? '#c0392b' : '';
+  }
+  function openRecharge() {
+    if (!me) { openAuth('login'); return; }
+    stopRcPoll();
+    rcNo = ''; rcPick = 0; rcTick = 0;
+    const bal = $('rcBalance');
+    if (bal) bal.textContent = '¥' + money(balanceFen());
+    const cus = $('rcCustom'); if (cus) cus.value = '';
+    const notice = $('rcNotice');
+    if (notice) {
+      const s = String(wal.recharge_notice || '');
+      notice.textContent = s;
+      notice.style.display = s ? '' : 'none';
+    }
+    const body = $('rcBody'); if (body) body.textContent = '';
+    rcSay('');
+    const go = $('rcGoBtn'); if (go) { go.disabled = false; go.textContent = t('生成充值单'); }
+    paintRcAmounts();
+    show('rechargeModal');
+  }
+  async function rechargeStart() {
+    if (rcBusy) return;
+    const fen = rcAmount();
+    if (!fen) { rcSay(t('请先选一个金额'), true); return; }
+    if (fen < Number(wal.recharge_min_fen || 100) || fen > Number(wal.recharge_max_fen || 5000000)) {
+      rcSay(t('金额范围') + ' ¥' + money(wal.recharge_min_fen) + ' ~ ¥' + money(wal.recharge_max_fen), true);
+      return;
+    }
+    rcBusy = true;
+    const go = $('rcGoBtn'); if (go) go.disabled = true;
+    try {
+      const d = await rpc('rpc_recharge_start', { p_token: token(), p_amount_fen: fen });
+      if (!d || d.ok !== true) { rcSay(errOf({ message: (d && d.error) || 'BAD_AMOUNT' }), true); return; }
+      rcNo = String(d.out_trade_no || '');
+      rcTick = 0;
+      await renderRcStep(d);
+      const btn2 = $('rcGoBtn'); if (btn2) btn2.textContent = t('我已完成支付');
+      startRcPoll();
+    } catch (e) { rcSay(errOf(e), true); }
+    rcBusy = false; if (go) go.disabled = false;
+  }
+  async function renderRcStep(d) {
+    const body = $('rcBody');
+    if (!body) return;
+    body.textContent = '';
+    const no = el('div', 'rc-no');
+    no.appendChild(el('div', null, t('充值单号') + '：'));
+    no.appendChild(el('b', null, String(d.out_trade_no)));
+    no.appendChild(el('div', null, t('金额') + ' ¥' + money(d.amount_fen)));
+    body.appendChild(no);
+    // 支付宝渠道：问 Edge Function 要收银台链接；没部署/没配密钥就自动按人工处理
+    let pay = null;
+    if (d.channel === 'alipay') pay = await payFn({ action: 'create', out_trade_no: d.out_trade_no });
+    if (pay && pay.ok === true && pay.mode === 'alipay') {
+      const go = el('a', 'btn btn-primary btn-block');
+      go.textContent = t('打开支付宝付款');
+      go.href = String(pay.pay_url || '#');
+      go.target = '_blank'; go.rel = 'noopener noreferrer';
+      body.appendChild(go);
+      if (pay.qr_url) {
+        const qr = el('a', 'btn btn-ghost btn-block');
+        qr.textContent = t('用另一台设备扫码');
+        qr.href = String(pay.qr_url); qr.target = '_blank'; qr.rel = 'noopener noreferrer';
+        body.appendChild(qr);
+      }
+      body.appendChild(el('div', 'me-note', t('付款成功后这个页面会自动到账，不用手动刷新')));
+    } else {
+      body.appendChild(el('div', 'me-note', t('请转账 ¥{amt}，并把上面的充值单号发给站长', { amt: money(d.amount_fen) })));
+      body.appendChild(el('div', 'me-note', t('站长在后台点「确认入账」后，余额会立刻到账')));
+    }
+  }
+  async function payFn(payload) {
+    try {
+      const res = await fetch(CFG.SUPA_URL.replace(/\/+$/, '') + '/functions/v1/alipay-pay', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload),
+      });
+      const txt = await res.text();
+      try { return JSON.parse(txt); } catch { return null; }
+    } catch { return null; }
+  }
+  function startRcPoll() {
+    stopRcPoll();
+    rcTimer = setInterval(() => { rcTick++; rcPoll(true); }, 4000);
+    rcPoll(false);
+  }
+  function stopRcPoll() { if (rcTimer) { clearInterval(rcTimer); rcTimer = null; } }
+  async function rcPoll(silent) {
+    if (!rcNo || !token()) return;
+    // 支付宝渠道偶尔回调进不来：每 12 秒主动去查一次单补账
+    if (rcTick > 0 && rcTick % 3 === 0) await payFn({ action: 'query', out_trade_no: rcNo });
+    let d = null;
+    try { d = await rpc('rpc_recharge_status', { p_token: token(), p_out_trade_no: rcNo }); }
+    catch (e) { if (!silent) rcSay(errOf(e), true); return; }
+    if (!d || d.ok !== true) { if (!silent) rcSay(errOf({ message: d && d.error || 'NOT_FOUND' }), true); return; }
+    if (d.status === 'paid') {
+      stopRcPoll();
+      rcSay(t('已到账') + ' ¥' + money(d.amount_fen), false);
+      const bal = $('rcBalance'); if (bal) bal.textContent = '¥' + money(d.balance_fen);
+      await loadWallet(true);
+      toast(t('充值已到账'));
+      const go = $('rcGoBtn'); if (go) go.textContent = t('关闭');
+      return;
+    }
+    if (!silent) rcSay(t('还在等待到账') + '…', false);
+  }
+
+  async function loadWallet(force) {
+    if (!token()) { wallet = null; return null; }
+    if (walBusy && !force) return wallet;
+    walBusy = true;
+    try {
+      const d = await rpc('rpc_wallet_info', { p_token: token() });
+      if (d && d.ok === true) wallet = d;
+      if (me) me.balance_fen = Number((wallet && wallet.balance_fen) != null ? wallet.balance_fen : me.balance_fen);
+    } catch (e) { /* 没执行 11-wallet.sql 时这里会失败，不影响登录 */ }
+    walBusy = false;
+    paintBtns();
+    try { document.dispatchEvent(new Event('faka-wallet')); } catch (e) { /* 老浏览器忽略 */ }
+    return wallet;
+  }
+  const balanceFen = () => Number((wallet && wallet.balance_fen) != null ? wallet.balance_fen : ((me && me.balance_fen) || 0));
+  async function loadWalFlags() {
+    try {
+      const f = await rpc('rpc_wallet_flags', {});
+      if (f && f.ok !== false) wal = Object.assign(wal, f);
+    } catch (e) { /* 老版本没有这个函数就按默认值 */ }
+  }
+
+
+  const RC_KIND = {
+    recharge: '充值到账', consume: '余额消费', refund: '退款', admin: '人工调整', bonus: '奖励金',
+  };
+  function walletCard() {
+    const card = el('div', 'dcard');
+    const h = el('h3', null, t('我的钱包') + ' · ¥' + money(balanceFen()));
+    card.appendChild(h);
+    const row = el('div', 'me-pills');
+    row.appendChild(el('span', 'pill ok', '¥' + money(balanceFen()) + ' ' + t('可用余额')));
+    row.appendChild(el('span', 'pill', t('累计充值') + ' ¥' + money((wallet && wallet.recharged_fen) || 0)));
+    row.appendChild(el('span', 'pill', t('累计消费') + ' ¥' + money((wallet && wallet.spent_fen) || 0)));
+    card.appendChild(row);
+    card.appendChild(btn('btn btn-primary', t('充值余额'), openRecharge));
+    if (!wallet) card.appendChild(el('div', 'me-note', t('余额功能还没开通：请到 Supabase 执行 11-wallet.sql')));
+    const tx = (wallet && Array.isArray(wallet.tx)) ? wallet.tx : [];
+    card.appendChild(el('div', 'me-sub', t('收支明细')));
+    if (!tx.length) card.appendChild(el('div', 'me-note', t('暂无记录')));
+    for (const r of tx.slice(0, 20)) {
+      const line = el('div', 'me-line');
+      const amt = Number(r.amount) || 0;
+      line.appendChild(el('span', null, (amt >= 0 ? '+' : '-') + money(Math.abs(amt)) + ' ' + t(RC_KIND[r.kind] || r.kind || '')));
+      line.appendChild(el('small', null, fmt(r.at) + (r.ref ? ' · ' + String(r.ref) : '')));
+      card.appendChild(line);
+    }
+    return card;
+  }
+
+  function rechargeGo() {
+    if (rcNo) {
+      const paid = wallet && (wallet.tx || []).some((x) => String(x.ref || '') === rcNo);
+      if (paid) { hide('rechargeModal'); return; }
+      rcPoll(false);
+      return;
+    }
+    rechargeStart();
+  }
+
   /* ---------- 顶栏按钮 ---------- */
   function paintBtns() {
     document.querySelectorAll('[data-act="open-account"]').forEach((b) => {
-      b.textContent = me ? (t('我的推广') + ' · ' + me.username) : (flags.member_open ? t('登录 / 注册') : t('登录'));
+      b.textContent = me
+        ? (t('我的钱包') + ' · ' + me.username + ' · ¥' + money(balanceFen()))
+        : (flags.member_open ? t('登录 / 注册') : t('登录'));
     });
   }
 
@@ -165,6 +388,7 @@
       if (!data || data.ok !== true || !data.token) throw new Error(tab === 'signup' ? 'USER_TAKEN' : 'BAD_LOGIN');
       setToken(data.token);
       me = data;
+      await loadWallet(true).catch(() => { /* 没跑 11-wallet.sql 也不影响登录 */ });
       paintBtns();
       hide('authModal');
       if (tab === 'signup') { try { localStorage.removeItem(REF); } catch (e) { /* 忽略 */ } }
@@ -185,6 +409,8 @@
     if (tk) { try { await rpc('rpc_logout', { p_token: tk }); } catch (e) { /* 本地照样退出 */ } }
     setToken('');
     me = null;
+    wallet = null;
+    stopRcPoll();
     paintBtns();
     toast(t('已退出登录'));
     location.hash = '';
@@ -264,6 +490,8 @@
       [t('奖励金'), '¥' + money(me.balance_fen)],
     ]));
 
+    box.appendChild(walletCard());
+
     const card = el('div', 'dcard');
     card.appendChild(el('h3', null, t('我的推广')));
     const link = el('div', 'me-link');
@@ -323,12 +551,14 @@
       const f = await rpc('rpc_member_flags', {});
       if (f && f.ok !== false) flags = Object.assign(flags, f);
     } catch (e) { /* 拿不到就按默认：开放注册、无奖励 */ }
+    await loadWalFlags();
     const tk = token();
     if (tk) {
       try {
         const data = await rpc('rpc_me', { p_token: tk });
         if (data && data.ok === true) me = data;
         else setToken('');
+        await loadWallet(true);
       } catch (e) { setToken(''); }
     }
     paintBtns();
@@ -344,16 +574,23 @@
       if (act === 'open-account') { if (me) location.hash = '#/me'; else openAuth('login'); }
       if (act === 'auth-submit') submitAuth();
       if (act === 'auth-swap') openAuth(tab === 'signup' ? 'login' : 'signup');
+      if (act === 'open-recharge') openRecharge();
+      if (act === 'recharge-start') rechargeGo();
     });
     document.querySelectorAll('[data-authtab]').forEach((b) => {
       b.addEventListener('click', () => { tab = b.getAttribute('data-authtab') === 'signup' ? 'signup' : 'login'; openAuth(); });
     });
+    const cus = $('rcCustom');
+    if (cus) cus.addEventListener('input', () => { rcPick = 0; paintRcAmounts(); });
     const pk = $('authPass2');
     if (pk) pk.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitAuth(); });
-    if (window.FakaI18n) document.addEventListener('faka-lang', () => { paintBtns(); paintTab(); renderMe(); });
+    if (window.FakaI18n) document.addEventListener('faka-lang', () => { paintBtns(); paintTab(); renderMe(); paintRcAmounts(); });
   }
 
-  window.FakaMember = { route, restore, openAuth, me: () => me };
+  window.FakaMember = {
+    route, restore, openAuth, me: () => me, openRecharge, balanceFen,
+    rechargeGo, walletFlags: () => wal, walletInfo: () => wallet, refreshWallet: () => loadWallet(true),
+  };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => { bind(); restore(); });
   else { bind(); restore(); }

@@ -65,6 +65,7 @@ function switchView(name) {
   if (name === 'settings') loadSiteSettings();
   if (name === 'members') { loadMemberSettings(); loadMembers(); }
   if (name === 'supplier') loadSupplier();
+  if (name === 'wallet') { loadWalletSettings(); loadRecharges(); }
 }
 
 /* ---------- 登录 / 会话 ---------- */
@@ -726,6 +727,48 @@ async function bulkGoods() {
   renderCatalogList();
 }
 
+// 「一键建满」：判重和写库都在服务端做，一次点完剩下所有 SKU。
+// 不用先在浏览器里拉清单，也不受商品列表只取 1000 行的限制。
+async function autoBuild() {
+  const stat = $('supBulkStat');
+  const put = (x) => { if (stat) stat.textContent = x; };
+  const kw = String((($('supFilter') && $('supFilter').value) || '')).trim();
+  const onlyOnline = !($('supBuildOffline') && $('supBuildOffline').checked);
+  const payload = { action: 'autobuild', dry: true, keyword: kw, markup_pct: markupPct() * 100, only_online: onlyOnline };
+  put('正在问服务端还差多少…');
+  let r = null;
+  try { r = await fnCall(payload); } catch (e) { put(''); toast('预览失败：' + errText(e.message || e)); return; }
+  if (!r || r.ok === false) { put(''); toast('预览失败：' + ((r && r.error_message) || '未知')); return; }
+  if (!r.to_build) { put(`对方 ${r.supplier_skus} 个 SKU，本店已建 ${r.already_built} 个：已经建满`); toast('没有需要补建的商品'); return; }
+  const lines = [
+    `对方 SKU ${r.supplier_skus} 个，本店已建 ${r.already_built} 个`,
+    `还差 ${r.to_build} 个要建`,
+    `定价：进价 +${Math.round(Number(r.markup_pct))}%`,
+    onlyOnline ? '跳过对方断货的（想一起建就勾「含对方断货」）' : '含对方断货的也一起建',
+  ];
+  if (kw) lines.push(`只建关键词：${kw}`);
+  if (r.truncated) lines.push('注意：对方清单没翻完，这次只建已翻到的');
+  for (const x of (r.sample || []).slice(0, 8)) lines.push(`  · ${x.name} 进价¥${x.cost} → 卖¥${x.retail}`);
+  put(`待建 ${r.to_build} 个`);
+  if (!confirm(lines.join(String.fromCharCode(10)) + String.fromCharCode(10) + String.fromCharCode(10) + '确定现在建？建完自动按规则归类。')) return;
+  const b = document.querySelector('[data-action="autobuild"]');
+  if (b) b.disabled = true;
+  put(`开始建 ${r.to_build} 个，别关页面…`);
+  try {
+    const go = await fnCall(Object.assign({}, payload, { dry: false }));
+    if (!go || go.ok === false) { put(''); toast('失败：' + ((go && go.error_message) || '未知')); return; }
+    put(`新建 ${go.created} 个${go.recategorized ? '（已自动归类）' : ''}`);
+    toast(`建好 ${go.created} 个商品，去「商品管理」看`);
+    try { await refreshSkuIndex(); } catch (e) { /* 刷新判重索引失败不影响已建结果 */ }
+    await loadGoodsAdmin();
+    renderCatalogList();
+  } catch (e) {
+    put(''); toast('执行失败：' + errText(e.message || e));
+  } finally {
+    if (b) b.disabled = false;
+  }
+}
+
 // 手动跑一次代发巡检：没挂上 pg_cron 时用它应急，效果与定时器同。
 async function runFulfill() {
   const b = document.querySelector('[data-action="run-fulfill"]');
@@ -776,6 +819,9 @@ function bind() {
     if (a === 'run-fulfill') b.addEventListener('click', runFulfill);
     if (a === 'sync-stock') b.addEventListener('click', syncStock);
     if (a === 'bulk-goods') b.addEventListener('click', bulkGoods);
+    if (a === 'autobuild') b.addEventListener('click', autoBuild);
+    if (a === 'save-wallet') b.addEventListener('click', saveWalletSettings);
+    if (a === 'refresh-recharge') b.addEventListener('click', loadRecharges);
     if (a === 'sync-desc') b.addEventListener('click', syncDesc);
     if (a === 'price-preview') b.addEventListener('click', () => priceRun(true));
     if (a === 'price-apply') b.addEventListener('click', () => priceRun(false));
@@ -1198,13 +1244,29 @@ function giveBonus(m, sgn) {
   runMemberBonus(m, sgn * fen, Math.max(0, Number(m.balance_fen || 0) + sgn * fen));
 }
 async function runMemberBonus(m, delta, next) {
-  const { error } = await supa.from('members').update({ balance_fen: next }).eq('id', m.id);
-  if (error) { toast(errText(error)); return; }
+  const note = delta > 0 ? '后台手动发放' : '后台手动扣回';
+  const { data, error } = await supa.rpc('rpc_wallet_adjust', { p_member_id: m.id, p_delta_fen: delta, p_note: note });
+  let legacy = false;
+  if (error) {
+    // 找不到函数 = 还没执行 11-wallet.sql，退回直接改余额（能用，只是前台看不到这条流水）
+    if (String(error.message || '').indexOf('rpc_wallet_adjust') < 0) { toast(errText(error)); return; }
+    legacy = true;
+  } else if (data && data.ok === true) {
+    toast('余额已更新为 ¥' + money(data.balance_fen));
+    await loadMembers();
+    return;
+  } else {
+    toast((data && data.error) || '调整失败');
+    return;
+  }
+  if (!legacy) return;
+  const { error: e2 } = await supa.from('members').update({ balance_fen: next }).eq('id', m.id);
+  if (e2) { toast(errText(e2)); return; }
   await supa.from('member_rewards').insert({
     member_id: m.id, kind: 'bonus', amount_fen: delta, from_member: 0,
-    note: delta > 0 ? '后台手动发放' : '后台手动扣回', created_at: Date.now(),
+    note: note, created_at: Date.now(),
   });
-  toast('奖励金已更新');
+  toast('奖励金已更新（提示：执行 11-wallet.sql 后每笔都会有流水）');
   await loadMembers();
 }
 async function toggleMember(m) {
@@ -1214,4 +1276,162 @@ async function toggleMember(m) {
   if (error) { toast(errText(error)); return; }
   toast(on ? '已禁用该会员' : '已启用该会员');
   await loadMembers();
+}
+
+
+/* ================= 钱包 / 充值（第 18 步） ================= */
+let rechargeCache = [];
+let memberNameCache = {};
+
+async function payCall(body) {
+  const res = await fetch(
+    CFG.SUPA_URL.replace(/\/+$/, '') + '/functions/v1/alipay-pay',
+    { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) },
+  );
+  const txt = await res.text();
+  try { return JSON.parse(txt); } catch { throw new Error('HTTP ' + res.status + '：' + txt.slice(0, 160)); }
+}
+
+function yuanToFen(id, maxFen) {
+  const raw = Number($(id) && $(id).value);
+  if (!Number.isFinite(raw) || raw <= 0) return 0;
+  return Math.max(0, Math.min(maxFen, Math.round(raw * 100)));
+}
+function fenToYuanText(fen) {
+  const v = Number(fen) || 0;
+  return v > 0 ? String(Math.round(v) / 100) : '';
+}
+async function loadWalletSettings() {
+  const { data, error } = await supa.from('settings').select('data').eq('id', 'site').maybeSingle();
+  if (error) { toast(errText(error)); return; }
+  const s = (data && data.data) || {};
+  if ($('walPayOpen')) $('walPayOpen').value = s.balance_pay_open === false ? '0' : '1';
+  if ($('walChannel')) $('walChannel').value = s.recharge_channel === 'alipay' ? 'alipay' : 'manual';
+  if ($('walMin')) $('walMin').value = fenToYuanText(s.recharge_min_fen || 100);
+  if ($('walMax')) $('walMax').value = fenToYuanText(s.recharge_max_fen || 5000000);
+  if ($('walPresets')) {
+    const arr = Array.isArray(s.recharge_presets) ? s.recharge_presets : [];
+    $('walPresets').value = arr.map((x) => Math.round(Number(x) / 100)).filter((x) => x > 0).join(',');
+  }
+  if ($('walNotice')) $('walNotice').value = s.recharge_notice || '';
+}
+async function saveWalletSettings() {
+  const presets = String(($('walPresets') && $('walPresets').value) || '')
+    .split(/[,，\s]+/).map((x) => Math.round(Number(x) * 100)).filter((x) => Number.isFinite(x) && x >= 100 && x <= 1000000);
+  const minFen = yuanToFen('walMin', 100000000) || 100;
+  let maxFen = yuanToFen('walMax', 100000000) || 5000000;
+  if (maxFen < minFen) maxFen = minFen;
+  const payload = {
+    balance_pay_open: ($('walPayOpen') && $('walPayOpen').value) !== '0',
+    recharge_channel: ($('walChannel') && $('walChannel').value) === 'alipay' ? 'alipay' : 'manual',
+    recharge_min_fen: minFen,
+    recharge_max_fen: maxFen,
+    recharge_presets: presets.slice(0, 12),
+    recharge_notice: String(($('walNotice') && $('walNotice').value) || '').slice(0, 600),
+  };
+  const { data: cur, error: e1 } = await supa.from('settings').select('data').eq('id', 'site').maybeSingle();
+  if (e1) { toast(errText(e1)); return; }
+  const merged = Object.assign({}, (cur && cur.data) || {}, payload);
+  const { error } = await supa.from('settings').update({ data: merged }).eq('id', 'site');
+  const stat = $('walSetStat');
+  if (error) { if (stat) stat.textContent = '保存失败'; toast(errText(error)); return; }
+  if (stat) stat.textContent = '已保存 ' + fmtTime(Date.now());
+  toast('钱包设置已保存，前台刷新后生效');
+}
+
+async function loadRecharges() {
+  const [r, m] = await Promise.all([
+    supa.from('recharge_orders')
+      .select('out_trade_no,member_id,amount_fen,channel,status,trade_no,note,created_at,paid_at')
+      .order('created_at', { ascending: false }).limit(500),
+    supa.from('members').select('id,username').limit(2000),
+  ]);
+  if (r.error) { toast(errText(r.error) + '（充值表还没建？请先执行 11-wallet.sql）'); return; }
+  memberNameCache = {};
+  for (const x of (m.data || [])) memberNameCache[x.id] = x.username;
+  rechargeCache = r.data || [];
+  renderRecharges();
+}
+function rechargeFilteredList() {
+  const kw = String(($('rcFilter') && $('rcFilter').value) || '').trim().toLowerCase();
+  const rank = ($('rcRank') && $('rcRank').value) || 'pending';
+  return rechargeCache.filter((x) => {
+    if (rank && x.status !== rank) return false;
+    if (!kw) return true;
+    return String(x.out_trade_no || '').toLowerCase().indexOf(kw) >= 0
+      || String(memberNameCache[x.member_id] || '').toLowerCase().indexOf(kw) >= 0;
+  });
+}
+const rcTag = (s) => ({ pending: '待入账', paid: '已入账', closed: '已关闭' }[s] || s);
+function renderRecharges() {
+  const tbody = document.querySelector('#rcTable tbody');
+  if (!tbody) return;
+  tbody.textContent = '';
+  const list = rechargeFilteredList();
+  const pend = rechargeCache.filter((x) => x.status === 'pending');
+  const sum = pend.reduce((a, b) => a + (Number(b.amount_fen) || 0), 0);
+  const stat = $('rcStat');
+  if (stat) stat.textContent = '共 ' + rechargeCache.length + ' 单（筛出 ' + list.length + '）· 待入账 ' + pend.length + ' 单 ¥' + money(sum);
+  const empty = $('rcEmpty');
+  if (empty) { empty.textContent = rechargeCache.length ? '没有符合条件的充值单' : '还没有充值单'; empty.style.display = list.length ? 'none' : 'block'; }
+  for (const r of list.slice(0, 300)) {
+    const tr = el('tr');
+    tr.appendChild(el('td', null, String(r.out_trade_no || '')));
+    tr.appendChild(el('td', null, String(memberNameCache[r.member_id] || ('#' + r.member_id))));
+    tr.appendChild(el('td', null, '¥' + money(r.amount_fen)));
+    tr.appendChild(el('td', null, r.channel === 'alipay' ? '支付宝' : '人工'));
+    const st = el('td', null, rcTag(r.status));
+    if (r.status === 'pending') st.style.color = '#d97706';
+    tr.appendChild(st);
+    tr.appendChild(el('td', null, fmtTime(r.created_at) + (r.paid_at ? ' → 到账 ' + fmtTime(r.paid_at) : '')));
+    tr.appendChild(el('td', null, String(r.note || r.trade_no || '')));
+    const ops = el('td');
+    if (r.status === 'pending') {
+      ops.appendChild(btn('btn btn-primary btn-sm', '确认入账', () => confirmRecharge(r)));
+      ops.appendChild(document.createTextNode(' '));
+      if (r.channel === 'alipay') {
+        ops.appendChild(btn('btn btn-ghost btn-sm', '查支付宝', () => queryAlipay(r)));
+        ops.appendChild(document.createTextNode(' '));
+      }
+      ops.appendChild(btn('btn btn-danger btn-sm', '关闭', () => closeRecharge(r)));
+    } else {
+      ops.appendChild(el('span', null, r.status === 'paid' ? '已加到余额' : '—'));
+    }
+    tr.appendChild(ops);
+    tbody.appendChild(tr);
+  }
+  if (list.length > 300) {
+    const tr = el('tr');
+    const td = el('td', null, '…… 还有 ' + (list.length - 300) + ' 单没显示，用上方搜索缩小范围');
+    td.colSpan = 8;
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  }
+}
+async function confirmRecharge(r) {
+  const who = String(memberNameCache[r.member_id] || ('#' + r.member_id));
+  if (!confirm('确认「' + who + '」的充值单 ' + r.out_trade_no + '（¥' + money(r.amount_fen) + '）已经到账？' + NL +
+    '确认后这笔钱会直接进他的余额，同一单号只会入账一次。')) return;
+  const note = prompt('备注（可留空，例如支付宝流水号 / 转账时间）：', '') || '';
+  const { data, error } = await supa.rpc('rpc_recharge_confirm', { p_out_trade_no: r.out_trade_no, p_note: note });
+  if (error) { toast(errText(error)); return; }
+  if (!data || data.ok !== true) { toast((data && data.error) || '入账失败'); return; }
+  toast(data.credited === false ? '这笔单之前已经入过账，没有重复给钱' : '已入账，余额 ¥' + money(data.balance_fen));
+  await loadRecharges();
+}
+async function closeRecharge(r) {
+  if (!confirm('关闭充值单 ' + r.out_trade_no + '？关闭后这笔不会再入账。')) return;
+  const { data, error } = await supa.rpc('rpc_recharge_close', { p_out_trade_no: r.out_trade_no });
+  if (error) { toast(errText(error)); return; }
+  toast(data && data.closed ? '已关闭' : '这笔单已经变了，刷新一下');
+  await loadRecharges();
+}
+async function queryAlipay(r) {
+  toast('正在向支付宝查这笔单…');
+  try {
+    const res = await payCall({ action: 'query', out_trade_no: r.out_trade_no });
+    if (res && res.ok && res.status === 'paid') toast('支付宝已确认收款，正在入账');
+    else toast('支付宝那边还没有这笔收款（' + ((res && (res.status || res.code)) || '未部署 alipay-pay') + '）');
+  } catch (e) { toast(errText(e)); }
+  await loadRecharges();
 }

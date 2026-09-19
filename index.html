@@ -211,6 +211,17 @@
 .auth-tab.on{background:var(--brand);border-color:var(--brand);color:#fff}
 .auth-msg{min-height:20px;font-size:12.5px;color:var(--text-sub);margin-top:10px;white-space:pre-wrap}
 .auth-msg.bad{color:#dc2626}
+.rc-amts{display:flex;flex-wrap:wrap;gap:8px}
+.rc-amts button{flex:0 0 auto;min-width:74px;padding:8px 12px;border:1px solid var(--border);background:#fff;border-radius:10px;font-size:14px;cursor:pointer}
+.rc-amts button.on{border-color:var(--primary);color:var(--primary);font-weight:600;background:#f2f7ff}
+.rc-no{background:var(--bg);border-radius:10px;padding:10px 12px;font-size:13px;word-break:break-all;margin-bottom:10px}
+.rc-no b{font-size:15px}
+.pay-balance{margin:2px 0 10px}
+.pay-balance .row{display:flex;justify-content:space-between;font-size:13px;padding:5px 0;color:var(--text-sub)}
+.pay-balance .row b{color:var(--text);font-weight:600}
+.wallet-bar{font-size:12px;color:var(--text-sub);margin-left:6px}
+@media (max-width:560px){.rc-amts button{min-width:62px;font-size:13px}}
+
 .me-kv{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px dashed var(--border);font-size:14px}
 .me-k{color:var(--text-sub)}.me-v{font-weight:600;word-break:break-all}
 .me-link{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:4px 0 10px}
@@ -310,8 +321,30 @@
       <div class="row"><span>商品名称</span><b id="payGoodsName">-</b></div>
       <div class="row"><span>数量</span><b id="payQty">-</b></div>
     </div>
+    <div class="pay-balance" id="balanceRow" style="display:none">
+      <div class="row"><span>账户余额</span><b id="balanceNum">¥0.00</b></div>
+      <button type="button" class="btn btn-primary btn-block" id="balancePayBtn" data-act="balance-pay">用余额支付，秒发货</button>
+      <button type="button" class="btn btn-ghost btn-block" id="goRechargeBtn" data-act="open-recharge" style="margin-top:8px">余额不够？去充值</button>
+    </div>
     <div class="demo-tip" id="payStatus">等待支付结果…</div>
     <button type="button" class="btn btn-primary btn-block" id="payRefreshBtn">我已完成支付，刷新状态</button>
+  </div>
+</div>
+
+<!-- 充值弹窗（逻辑在 member.js，CSP 禁内联脚本） -->
+<div class="modal-mask" id="rechargeModal">
+  <div class="modal">
+    <h3><span id="rcTitle">充值余额</span><button type="button" class="close" data-close="rechargeModal">✕</button></h3>
+    <div class="pay-info">
+      <div class="row"><span>当前余额</span><b id="rcBalance">¥0.00</b></div>
+    </div>
+    <div class="form-item"><label>选择金额</label><div class="rc-amts" id="rcAmounts"></div></div>
+    <div class="form-item"><label>其他金额（元）</label>
+      <input type="number" id="rcCustom" min="1" step="1" maxlength="8" placeholder="也可以自己填" autocomplete="off" /></div>
+    <div class="demo-tip" id="rcNotice" style="display:none"></div>
+    <div id="rcBody"></div>
+    <button type="button" class="btn btn-primary btn-block" id="rcGoBtn" data-act="recharge-start">生成充值单</button>
+    <div class="demo-tip" id="rcMsg" style="display:none"></div>
   </div>
 </div>
 

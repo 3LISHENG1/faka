@@ -105,6 +105,7 @@
       <button class="nav-item" data-view="orders">🧾 订单管理</button>
       <button class="nav-item" data-view="agents">📣 推广返佣</button>
       <button class="nav-item" data-view="members">👥 会员推广</button>
+      <button class="nav-item" data-view="wallet">💰 钱包充值</button>
       <button class="nav-item" data-view="supplier">🔗 货源对接</button>
       <button class="nav-item" data-view="settings">⚙️ 系统设置</button>
       <button type="button" class="nav-item logout" data-action="logout">🚪 退出登录</button>
@@ -294,6 +295,47 @@
         </div>
       </section>
 
+      <section id="view-wallet" class="view" style="display:none">
+        <div class="page-title">钱包充值</div>
+        <div class="panel">
+          <div class="panel-head"><h4>钱包与充值设置 <span id="walSetStat" style="font-size:12px;font-weight:400;color:#64748b;margin-left:8px"></span></h4></div>
+          <div class="form-row">
+            <div class="form-item" style="flex:0 0 240px"><label>允许「用余额支付」下单</label>
+              <select id="walPayOpen"><option value="1">允许（推荐）</option><option value="0">关闭（只留原来的支付方式）</option></select></div>
+            <div class="form-item" style="flex:0 0 300px"><label>充值渠道</label>
+              <select id="walChannel"><option value="manual">人工：买家转账给你 → 在下方点「确认入账」</option><option value="alipay">支付宝：自动到账（要先部署 alipay-pay 函数 + 配密钥）</option></select></div>
+            <div class="form-item" style="flex:0 0 150px"><label>最低充值（元）</label>
+              <input type="number" id="walMin" min="1" max="99999" step="1" placeholder="1"></div>
+            <div class="form-item" style="flex:0 0 150px"><label>最高充值（元）</label>
+              <input type="number" id="walMax" min="1" max="999999" step="1" placeholder="50000"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-item" style="flex:1"><label>快捷充值金额（元，逗号隔开）</label>
+              <input type="text" id="walPresets" maxlength="120" placeholder="10,30,50,100,300,500"></div>
+          </div>
+          <div class="form-item"><label>充值须知（前台充值弹窗里显示）</label>
+            <textarea id="walNotice" rows="3" maxlength="600" placeholder="例如：收款支付宝 xxx@xx.com；转账后把充值单号发我，工作时间 5 分钟内入账。"></textarea></div>
+          <button type="button" class="btn btn-primary" data-action="save-wallet">保存钱包设置</button>
+          <div class="hint" style="margin-top:12px">买家流程：注册 → 充值拿到余额 → 下单时点「用余额支付」，秒发货。<b>选「人工」现在就能收钱</b>，不用任何资质；选「支付宝」请先看 ALIPAY.md —— github.io 域名没有 ICP 备案，直连支付宝是签不下合同的，得先换成自己的备案域名。</div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h4>充值单 <span id="rcStat" style="font-size:12px;font-weight:400;color:#64748b;margin-left:8px"></span></h4></div>
+          <div class="form-row" style="margin-bottom:14px">
+            <div class="form-item" style="flex:1"><label>搜索</label>
+              <input type="text" id="rcFilter" maxlength="60" placeholder="充值单号 / 会员用户名；留空 = 全部"></div>
+            <div class="form-item" style="flex:0 0 200px"><label>状态</label>
+              <select id="rcRank"><option value="pending">只看待确认入账</option><option value="">全部</option><option value="paid">已入账</option><option value="closed">已关闭</option></select></div>
+            <div class="form-item" style="flex:0 0 140px"><label>&nbsp;</label>
+              <button type="button" class="btn btn-ghost" data-action="refresh-recharge">刷新</button></div>
+          </div>
+          <div style="overflow-x:auto"><table id="rcTable">
+            <thead><tr><th>充值单号</th><th>会员</th><th>金额</th><th>渠道</th><th>状态</th><th>发起时间</th><th>备注</th><th>操作</th></tr></thead>
+            <tbody></tbody>
+          </table></div>
+          <div class="empty" id="rcEmpty" style="display:none">还没有充值单</div>
+          <div class="hint" style="margin-top:12px">「确认入账」只加钱一次：同一个充值单号点第二遍不会再给钱。买家说付了但没入账，先点「刷新」，支付宝渠道会自动查单补账。</div>
+        </div>
+      </section>
 
       <section id="view-supplier" class="view" style="display:none">
         <div class="page-title">货源对接</div>
@@ -318,12 +360,14 @@
           <span id="supDescStat" style="font-size:12px"></span>
           <div class="form-item" style="margin-top:14px"><label>对方商品清单（sku_id | 标题 | 价格 | 库存）</label><textarea id="supCatalog" readonly style="min-height:170px;font-size:12px" placeholder="点上方按钮拉取，直接复制 sku_id 到商品编辑框"></textarea></div>
           <div class="form-item"><label>想卖哪个？点行末「建商品」直接生成</label><div id="supCatalogList" style="max-height:340px;overflow:auto;border:1px solid #e5e7eb;border-radius:8px;padding:6px 10px"></div></div>
-          <div class="form-item"><label>批量建商品</label>
+          <div class="form-item"><label>批量建商品（两个按钮都只建「还没建过」的，重复点不会造重复商品）</label>
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
               <input type="text" id="supFilter" maxlength="40" placeholder="关键词过滤，如 Gmail / Telegram / 人工；留空 = 全部" style="flex:1;min-width:220px">
               <label style="font-size:12px">加价%</label>
               <input type="number" id="supMarkup" value="30" min="0" max="500" step="5" style="width:80px">
               <button type="button" class="btn btn-primary" data-action="bulk-goods">批量建商品</button>
+              <label style="font-size:12px"><input type="checkbox" id="supBuildOffline"> 含对方断货</label>
+              <button type="button" class="btn btn-ghost" data-action="autobuild">一键建满（服务端）</button>
               <span id="supBulkStat" style="font-size:12px"></span>
             </div>
           </div>
