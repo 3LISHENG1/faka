@@ -59,7 +59,7 @@ function switchView(name) {
   document.querySelectorAll('.nav-item[data-view]').forEach((n) =>
     n.classList.toggle('active', n.getAttribute('data-view') === name));
   if (name === 'dashboard') loadDashboard();
-  if (name === 'goods') loadGoodsAdmin();
+  if (name === 'goods') { loadGoodsAdmin().then(() => { fillLkCats(); listingHistory(); }); lkSyncUI(); }
   if (name === 'cards') { loadGoodsForSelect().then(loadCards); }
   if (name === 'orders') loadOrders();
   if (name === 'settings') loadSiteSettings();
@@ -826,6 +826,9 @@ function bind() {
     if (a === 'price-preview') b.addEventListener('click', () => priceRun(true));
     if (a === 'price-apply') b.addEventListener('click', () => priceRun(false));
     if (a === 'price-undo') b.addEventListener('click', priceUndo);
+    if (a === 'listing-preview') b.addEventListener('click', () => listingRun(true));
+    if (a === 'listing-apply') b.addEventListener('click', () => listingRun(false));
+    if (a === 'listing-undo') b.addEventListener('click', listingUndo);
     if (a === 'save-members') b.addEventListener('click', saveMemberSettings);
   });
   const sf = $('supFilter');
@@ -836,6 +839,11 @@ function bind() {
   if (sf) sf.addEventListener('input', renderCatalogList);
   const paScope = $('paScope');
   if (paScope) paScope.addEventListener('change', paSyncUI);
+  const lkScope = $('lkScope');
+  if (lkScope) lkScope.addEventListener('change', lkSyncUI);
+  const lkTo = $('lkTo');
+  if (lkTo) lkTo.addEventListener('change', lkSyncUI);
+  for (const id of ['lkCat', 'lkKw']) { const n = $(id); if (n) n.addEventListener('change', lkSyncUI); }
   for (const id of ['paMode', 'paSign', 'paVal', 'paOnlyOn']) {
     const n = $(id);
     if (n) n.addEventListener('input', () => { paHintClear(); });
@@ -1434,4 +1442,150 @@ async function queryAlipay(r) {
     else toast('支付宝那边还没有这笔收款（' + ((res && (res.status || res.code)) || '未部署 alipay-pay') + '）');
   } catch (e) { toast(errText(e)); }
   await loadRecharges();
+}
+
+/* ================= 一键下架 / 一键上架（第 20 步） ================= */
+const LK_SCOPE_TEXT = {
+  oos: '对方缺货 / 断货的代发商品',
+  all: '全部商品',
+  pending: '当前筛选结果',
+  category: '指定分类',
+  keyword: '指定关键词',
+};
+function lkVal(id) { return ($(id) && $(id).value) || ''; }
+function lkIds() { return goodsFilteredList().map((g) => Number(g.id)).filter((x) => x > 0); }
+function fillLkCats() {
+  const sel = $('lkCat');
+  if (!sel) return;
+  const cats = [];
+  for (const g of goodsCache || []) {
+    const c = String(g.category || '').trim() || '未分类';
+    if (cats.indexOf(c) < 0) cats.push(c);
+  }
+  cats.sort();
+  const keep = sel.value;
+  sel.textContent = '';
+  for (const c of cats) {
+    const o = el('option', null, c);
+    o.value = c;
+    sel.appendChild(o);
+  }
+  if (keep && cats.indexOf(keep) >= 0) sel.value = keep;
+}
+function lkSyncUI() {
+  const scope = lkVal('lkScope') || 'all';
+  const show = (id, on) => { const n = $(id); if (n) n.style.display = on ? '' : 'none'; };
+  show('lkCatItem', scope === 'category');
+  show('lkKwItem', scope === 'keyword');
+  show('lkIdsItem', scope === 'pending');
+  if (scope === 'pending') {
+    const h = $('lkIdsHint');
+    if (h) h.textContent = '当前筛出 ' + lkIds().length + ' 个商品（改上面的搜索框 / 筛选就能变）';
+  }
+  const s = $('lkPreview');
+  if (s) s.textContent = '';
+}
+function lkPayload(dry) {
+  const scope = lkVal('lkScope') || 'all';
+  return {
+    p_to: Number(lkVal('lkTo')) === 1 ? 1 : 0,
+    p_scope: scope,
+    p_kw: scope === 'keyword' ? String(lkVal('lkKw') || '').trim() : '',
+    p_cat: scope === 'category' ? lkVal('lkCat') : '',
+    p_ids: scope === 'pending' ? lkIds() : [],
+    p_dry: dry !== false,
+    p_note: '',
+  };
+}
+function lkCheck(payload) {
+  if (payload.p_scope === 'keyword' && !payload.p_kw) { toast('请先填关键词'); return false; }
+  if (payload.p_scope === 'category' && !payload.p_cat) { toast('请先选分类'); return false; }
+  if (payload.p_scope === 'pending' && !payload.p_ids.length) { toast('当前筛选结果为空，请先在上方搜索 / 筛选'); return false; }
+  if (payload.p_scope === 'pending' && payload.p_ids.length > 5000) { toast('一次最多 5000 个，请用搜索缩小范围'); return false; }
+  return true;
+}
+function lkSample(data) {
+  const rows = Array.isArray(data.sample) ? data.sample : [];
+  if (!rows.length) return '';
+  const on = (v) => (Number(v) === 1 ? '上架中' : '已下架');
+  return NL + '举例：' + NL + rows.map((s) => '  #' + s.id + ' ' + s.name + '（' + on(s.from) + ' → ' + on(s.to) + '）').join(NL);
+}
+function lkSummary(data, payload) {
+  const off = Number(payload.p_to) === 0;
+  const lines = [];
+  lines.push((off ? '下架' : '上架') + '：命中 ' + Number(data.matched || 0) + ' 个，实际会改动 ' + Number(data.changed || 0) + ' 个');
+  lines.push('其中：代发商品 ' + Number(data.drop_cnt || 0) + ' 个 · 本店卡密商品 ' + Number(data.own_cnt || 0) + ' 个');
+  if (!off && Number(data.still_oos || 0) > 0) {
+    lines.push('注意：里面有 ' + Number(data.still_oos) + ' 个对方目前仍是缺货/断货，上架后下一轮库存同步会自动再把它们下架。');
+  }
+  if (Number(data.changed || 0) === 0) lines.push('已经是目标状态，没有需要改动的商品。');
+  return lines.join(NL) + lkSample(data);
+}
+async function listingRun(dry) {
+  // 无论按哪个按钮，第一次调用永远是 dry（只统计不动库），确认以后才真执行
+  const payload = lkPayload(true);
+  if (!lkCheck(payload)) return;
+  const b1 = document.querySelector('[data-action="listing-preview"]');
+  const b2 = document.querySelector('[data-action="listing-apply"]');
+  const box = $('lkPreview');
+  if (b1) b1.disabled = true;
+  if (b2) b2.disabled = true;
+  if (box) box.textContent = '正在统计…';
+  try {
+    const { data, error } = await supa.rpc('rpc_set_listing', payload);
+    if (error) {
+      const msg = String(error.message || '');
+      if ((msg.indexOf('Could not find the function') >= 0 || msg.indexOf('PGRST202') >= 0) && box) {
+        box.textContent = '还没执行 12-bulk-takedown.sql：去 Supabase SQL Editor 跑一遍（网址见 README 第 20 步）';
+        return;
+      }
+      if (msg.indexOf('ADMIN_ONLY') >= 0 && box) { box.textContent = '只有站长账号能用这个功能，请重新登录后台'; return; }
+      if (box) box.textContent = '失败：' + errText(error);
+      toast(errText(error));
+      return;
+    }
+    if (!data || data.ok !== true) { if (box) box.textContent = '没拿到结果，请刷新重试'; return; }
+    const text = lkSummary(data, payload);
+    if (box) box.textContent = text;
+    const stat = $('lkStat');
+    if (stat && !dry) stat.textContent = '刚执行：改动 ' + Number(data.changed || 0) + ' 个 · ' + fmtTime(Date.now());
+    if (dry !== false) return;
+    if (!confirm(text + NL + NL + '确定执行吗？（下架只是从前台隐藏，数据都在，可以一键撤销）')) return;
+    const again = await supa.rpc('rpc_set_listing', lkPayload(false));
+    if (again.error) { toast(errText(again.error)); return; }
+    const d2 = again.data || {};
+    toast(d2.ok === true ? ('已完成：改动 ' + Number(d2.changed || 0) + ' 个商品') : '执行失败，请刷新重试');
+    if (box) box.textContent = lkSummary(d2, payload) + NL + '（已执行）';
+    await loadGoodsAdmin();
+    await listingHistory();
+  } finally {
+    if (b1) b1.disabled = false;
+    if (b2) b2.disabled = false;
+  }
+}
+async function listingHistory() {
+  const stat = $('lkStat');
+  if (!stat) return;
+  const { data, error } = await supa.rpc('rpc_listing_batches', { p_limit: 5 });
+  if (error || !Array.isArray(data) || !data.length) return;
+  const last = data.filter((b) => b.undone !== true)[0] || data[0];
+  const done = data.filter((b) => b.undone !== true).length;
+  stat.textContent = '最近：' + (Number(last.to_status) === 0 ? '一键下架 ' : '一键上架 ') + Number(last.changed || 0) + ' 个（'
+    + fmtTime(last.created_at) + '）' + (done ? ' · 可撤销 ' + done + ' 次' : ' · 已全部撤销');
+}
+async function listingUndo() {
+  const { data, error } = await supa.rpc('rpc_listing_batches', { p_limit: 10 });
+  if (error) { toast(errText(error) + '（先执行 12-bulk-takedown.sql）'); return; }
+  const list = (Array.isArray(data) ? data : []).filter((b) => b.undone !== true);
+  if (!list.length) { toast('没有可撤销的下架 / 上架批次'); return; }
+  const last = list[0];
+  const what = Number(last.to_status) === 0 ? '下架' : '上架';
+  if (!confirm('撤销上一次「一键' + what + '」（' + Number(last.changed || 0) + ' 个商品，' + fmtTime(last.created_at) + '）？' +
+    NL + '你后来手动改过状态的商品不会被覆盖。')) return;
+  const r = await supa.rpc('rpc_listing_undo', { p_batch: last.id });
+  if (r.error) { toast(errText(r.error)); return; }
+  const d = r.data || {};
+  toast('已还原 ' + Number(d.restored || 0) + ' 个' + (Number(d.skipped || 0) ? '，跳过 ' + Number(d.skipped) + ' 个（你手改过）' : ''));
+  await loadGoodsAdmin();
+  await listingHistory();
 }

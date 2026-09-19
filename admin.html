@@ -183,6 +183,34 @@
           <button type="button" class="btn btn-ghost" data-action="price-undo">撤销上一次调价</button>
           <div id="paPreview" style="margin-top:12px;font-size:13px;color:#475569;white-space:pre-wrap"></div>
         </div>
+        <div class="panel">
+          <div class="panel-head"><h4>一键下架 / 一键上架 <span id="lkStat" style="font-size:12px;font-weight:400;color:#64748b;margin-left:8px"></span></h4></div>
+          <div class="hint" style="margin-bottom:12px">下架 = 商品从前台商城消失（<code>status=0</code>），<b>不删商品、不动价格、不动卡密、不动订单</b>。先「预览影响」看清要动几个，再「确认执行」；反悔了点「撤销上一次」还原（你后来手改过的不会被覆盖）。</div>
+          <div class="form-row">
+            <div class="form-item" style="flex:0 0 240px"><label>要做什么</label>
+              <select id="lkTo">
+                <option value="0">下架（前台不再显示、买不到）</option>
+                <option value="1">上架（恢复出售）</option>
+              </select></div>
+            <div class="form-item" style="flex:0 0 300px"><label>作用范围</label>
+              <select id="lkScope">
+                <option value="oos">对方缺货 / 断货的代发商品（最常用）</option>
+                <option value="all">全部商品</option>
+                <option value="pending">当前筛选结果</option>
+                <option value="category">指定分类</option>
+                <option value="keyword">指定关键词</option>
+              </select></div>
+            <div class="form-item" style="flex:0 0 220px;display:none" id="lkCatItem"><label>选分类</label><select id="lkCat"></select></div>
+            <div class="form-item" style="flex:0 0 280px;display:none" id="lkKwItem"><label>关键词</label>
+              <input type="text" id="lkKw" maxlength="60" placeholder="商品名 / 分类里含这个词"></div>
+            <div class="form-item" style="flex:1;display:none" id="lkIdsItem"><label>当前筛选结果</label>
+              <div id="lkIdsHint" style="font-size:12px;color:#64748b;padding:9px 0"></div></div>
+          </div>
+          <button type="button" class="btn btn-primary" data-action="listing-preview">预览影响</button>
+          <button type="button" class="btn btn-danger" data-action="listing-apply">确认执行</button>
+          <button type="button" class="btn btn-ghost" data-action="listing-undo">撤销上一次</button>
+          <div id="lkPreview" style="margin-top:12px;font-size:13px;color:#475569;white-space:pre-wrap"></div>
+        </div>
       </section>
 
       <section id="view-cards" class="view" style="display:none">
