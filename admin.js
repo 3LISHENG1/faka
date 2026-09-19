@@ -133,6 +133,26 @@ async function loadDashboard() {
 
 /* ---------- 商品 ---------- */
 let goodsCardCount = {};
+// 商品列表分页：一次渲染上千行会把浏览器卡死（第 20 步补）
+let goodsPage = 0;
+let goodsPageSize = 50;
+function goodsPages(list) {
+  const size = goodsPageSize > 0 ? goodsPageSize : 50;
+  const n = list && list.length ? list.length : 0;
+  return { size, pages: Math.max(1, Math.ceil(n / size)) };
+}
+function goodsStep(d) {
+  const pg = goodsPages(goodsFilteredList());
+  const n = Math.min(pg.pages - 1, Math.max(0, goodsPage + d));
+  if (n === goodsPage) { toast(d < 0 ? `已经是第一页` : `已经是最后一页`); return; }
+  goodsPage = n;
+  renderGoodsAdmin();
+}
+function goodsSetSize(n) {
+  goodsPageSize = Number(n) > 0 ? Number(n) : 50;
+  goodsPage = 0;
+  renderGoodsAdmin();
+}
 
 // 库存列：代发商品显示「对方库存 + 进价/毛利」，自营商品显示本店未售出卡密数。
 // 以前这一列只数卡密，代发商品本店卡密恒为 0，看起来就像没有库存。
@@ -190,7 +210,13 @@ function renderGoodsAdmin() {
   }
   $("goodsEmpty").textContent = all.length ? "没有符合筛选条件的商品" : "还没有商品";
   $("goodsEmpty").style.display = list.length ? "none" : "block";
-  for (const g of list.slice(0, 2000)) {
+  const pg = goodsPages(list);
+  if (goodsPage > pg.pages - 1) goodsPage = pg.pages - 1;
+  if (goodsPage < 0) goodsPage = 0;
+  const from = goodsPage * pg.size;
+  const rows = list.slice(from, from + pg.size);
+  goodsPagerUI(list, pg, from, rows.length);
+  for (const g of rows) {
     const sku = String(g.supplier_sku_id || "").trim();
     const tr = el("tr");
     tr.appendChild(el("td", null, (g.cover || "🎁") + " " + g.name));
@@ -209,13 +235,21 @@ function renderGoodsAdmin() {
     tr.appendChild(ops);
     tbody.appendChild(tr);
   }
-  if (list.length > 2000) {
-    const tr = el("tr");
-    const td = el("td", null, `…… 还有 ${list.length - 2000} 个没显示，用上方搜索缩小范围`);
-    td.colSpan = 7;
-    tr.appendChild(td);
-    tbody.appendChild(tr);
+}
+
+function goodsPagerUI(list, pg, from, shown) {
+  const box = $("goodsPagerItem");
+  if (box) box.style.display = list.length > pg.size ? "" : "none";
+  const stat = $("goodsPageStat");
+  if (stat) {
+    stat.textContent = list.length
+      ? `第 ${from + 1}-${from + shown} 个 / 共 ${list.length} 个 · 第 ${goodsPage + 1} / ${pg.pages} 页（每页 ${pg.size}）`
+      : "";
   }
+  const pv = document.querySelector('[data-action="goods-prev"]');
+  const nx = document.querySelector('[data-action="goods-next"]');
+  if (pv) pv.disabled = goodsPage <= 0;
+  if (nx) nx.disabled = goodsPage >= pg.pages - 1;
 }
 
 async function loadGoodsAdmin() {
@@ -829,13 +863,17 @@ function bind() {
     if (a === 'listing-preview') b.addEventListener('click', () => listingRun(true));
     if (a === 'listing-apply') b.addEventListener('click', () => listingRun(false));
     if (a === 'listing-undo') b.addEventListener('click', listingUndo);
+    if (a === 'goods-prev') b.addEventListener('click', () => goodsStep(-1));
+    if (a === 'goods-next') b.addEventListener('click', () => goodsStep(1));
     if (a === 'save-members') b.addEventListener('click', saveMemberSettings);
   });
   const sf = $('supFilter');
   for (const id of ['goodsFilter', 'goodsStockFilter']) {
     const n = $(id);
-    if (n) n.addEventListener(id === 'goodsFilter' ? 'input' : 'change', () => renderGoodsAdmin());
+    if (n) n.addEventListener(id === 'goodsFilter' ? 'input' : 'change', () => { goodsPage = 0; renderGoodsAdmin(); });
   }
+  const gps = $('goodsPageSize');
+  if (gps) gps.addEventListener('change', () => goodsSetSize(gps.value));
   if (sf) sf.addEventListener('input', renderCatalogList);
   const paScope = $('paScope');
   if (paScope) paScope.addEventListener('change', paSyncUI);
