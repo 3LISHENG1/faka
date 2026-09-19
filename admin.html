@@ -347,7 +347,7 @@
             <div class="form-item" style="flex:0 0 240px"><label>允许「用余额支付」下单</label>
               <select id="walPayOpen"><option value="1">允许（推荐）</option><option value="0">关闭（只留原来的支付方式）</option></select></div>
             <div class="form-item" style="flex:0 0 300px"><label>充值渠道</label>
-              <select id="walChannel"><option value="manual">人工：买家转账给你 → 在下方点「确认入账」</option><option value="alipay">支付宝：自动到账（要先部署 alipay-pay 函数 + 配密钥）</option></select></div>
+              <select id="walChannel"><option value="manual">人工：买家转账给你 → 在下方点「确认入账」</option><option value="alipay_qr">支付宝动态收款码（当面付 · 推荐：不需要备案域名，买家扫码即到账）</option><option value="alipay">支付宝网页收银台（电脑网站支付 · 需要备案域名 + 单独签约）</option></select></div>
             <div class="form-item" style="flex:0 0 150px"><label>最低充值（元）</label>
               <input type="number" id="walMin" min="1" max="99999" step="1" placeholder="1"></div>
             <div class="form-item" style="flex:0 0 150px"><label>最高充值（元）</label>

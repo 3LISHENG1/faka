@@ -1328,6 +1328,8 @@ async function toggleMember(m) {
 /* ================= 钱包 / 充值（第 18 步） ================= */
 let rechargeCache = [];
 let memberNameCache = {};
+const WAL_CHANNELS = ['manual', 'alipay', 'alipay_qr'];
+const WAL_CHAN_TEXT = { manual: '人工', alipay: '支付宝·网页', alipay_qr: '支付宝·扫码' };
 
 async function payCall(body) {
   const res = await fetch(
@@ -1352,7 +1354,7 @@ async function loadWalletSettings() {
   if (error) { toast(errText(error)); return; }
   const s = (data && data.data) || {};
   if ($('walPayOpen')) $('walPayOpen').value = s.balance_pay_open === false ? '0' : '1';
-  if ($('walChannel')) $('walChannel').value = s.recharge_channel === 'alipay' ? 'alipay' : 'manual';
+  if ($('walChannel')) $('walChannel').value = WAL_CHANNELS.indexOf(s.recharge_channel) >= 0 ? s.recharge_channel : 'manual';
   if ($('walMin')) $('walMin').value = fenToYuanText(s.recharge_min_fen || 100);
   if ($('walMax')) $('walMax').value = fenToYuanText(s.recharge_max_fen || 5000000);
   if ($('walPresets')) {
@@ -1369,7 +1371,7 @@ async function saveWalletSettings() {
   if (maxFen < minFen) maxFen = minFen;
   const payload = {
     balance_pay_open: ($('walPayOpen') && $('walPayOpen').value) !== '0',
-    recharge_channel: ($('walChannel') && $('walChannel').value) === 'alipay' ? 'alipay' : 'manual',
+    recharge_channel: WAL_CHANNELS.indexOf(($('walChannel') && $('walChannel').value) || '') >= 0 ? $('walChannel').value : 'manual',
     recharge_min_fen: minFen,
     recharge_max_fen: maxFen,
     recharge_presets: presets.slice(0, 12),
@@ -1425,7 +1427,7 @@ function renderRecharges() {
     tr.appendChild(el('td', null, String(r.out_trade_no || '')));
     tr.appendChild(el('td', null, String(memberNameCache[r.member_id] || ('#' + r.member_id))));
     tr.appendChild(el('td', null, '¥' + money(r.amount_fen)));
-    tr.appendChild(el('td', null, r.channel === 'alipay' ? '支付宝' : '人工'));
+    tr.appendChild(el('td', null, WAL_CHAN_TEXT[r.channel] || '人工'));
     const st = el('td', null, rcTag(r.status));
     if (r.status === 'pending') st.style.color = '#d97706';
     tr.appendChild(st);
@@ -1435,7 +1437,7 @@ function renderRecharges() {
     if (r.status === 'pending') {
       ops.appendChild(btn('btn btn-primary btn-sm', '确认入账', () => confirmRecharge(r)));
       ops.appendChild(document.createTextNode(' '));
-      if (r.channel === 'alipay') {
+      if (String(r.channel || '').indexOf('alipay') === 0) {
         ops.appendChild(btn('btn btn-ghost btn-sm', '查支付宝', () => queryAlipay(r)));
         ops.appendChild(document.createTextNode(' '));
       }

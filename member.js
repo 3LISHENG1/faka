@@ -201,24 +201,64 @@
     body.appendChild(no);
     // 支付宝渠道：问 Edge Function 要收银台链接；没部署/没配密钥就自动按人工处理
     let pay = null;
-    if (d.channel === 'alipay') pay = await payFn({ action: 'create', out_trade_no: d.out_trade_no });
-    if (pay && pay.ok === true && pay.mode === 'alipay') {
-      const go = el('a', 'btn btn-primary btn-block');
-      go.textContent = t('打开支付宝付款');
-      go.href = String(pay.pay_url || '#');
-      go.target = '_blank'; go.rel = 'noopener noreferrer';
-      body.appendChild(go);
+    if (d.channel === 'alipay' || d.channel === 'alipay_qr') {
+      pay = await payFn({ action: 'create', out_trade_no: d.out_trade_no,
+        mode: d.channel === 'alipay_qr' ? 'qr' : 'page' });
+    }
+    if (pay && pay.ok === true && pay.mode === 'alipay' && (pay.qr_url || pay.pay_url)) {
       if (pay.qr_url) {
-        const qr = el('a', 'btn btn-ghost btn-block');
-        qr.textContent = t('用另一台设备扫码');
-        qr.href = String(pay.qr_url); qr.target = '_blank'; qr.rel = 'noopener noreferrer';
-        body.appendChild(qr);
+        const wrap = el('div', 'rc-qrbox');
+        fakaQr(wrap, String(pay.qr_url));
+        wrap.appendChild(el('div', 'me-note', t('打开支付宝 App → 扫一扫，对准上面的二维码付款')));
+        wrap.appendChild(el('div', 'me-note', t('这个码只对应本单，30 分钟内有效；关掉重开会换一张新码')));
+        body.appendChild(wrap);
+      }
+      if (pay.pay_url) {
+        const go = el('a', 'btn btn-primary btn-block');
+        go.textContent = t('打开支付宝付款');
+        go.href = String(pay.pay_url);
+        go.target = '_blank'; go.rel = 'noopener noreferrer';
+        body.appendChild(go);
+      } else if (pay.qr_url) {
+        const alt = el('a', 'btn btn-ghost btn-block');
+        alt.textContent = t('手机上打不开？点这里直接在支付宝里打开');
+        alt.href = String(pay.qr_url); alt.target = '_blank'; alt.rel = 'noopener noreferrer';
+        body.appendChild(alt);
       }
       body.appendChild(el('div', 'me-note', t('付款成功后这个页面会自动到账，不用手动刷新')));
     } else {
       body.appendChild(el('div', 'me-note', t('请转账 ¥{amt}，并把上面的充值单号发给站长', { amt: money(d.amount_fen) })));
       body.appendChild(el('div', 'me-note', t('站长在后台点「确认入账」后，余额会立刻到账')));
     }
+  }
+  // 用自托管的 qr.js（qrcode-generator, MIT）把支付宝返回的 qr_code 画成可扫的码
+  function fakaQr(box, text) {
+    if (!box || !text) return false;
+    if (typeof qrcode !== 'function') {
+      box.appendChild(el('div', 'me-note', t('二维码组件没加载，请用上面的链接付款')));
+      return false;
+    }
+    let qr = null;
+    try { qr = qrcode(0, 'M'); qr.addData(String(text)); qr.make(); } catch (e) { return false; }
+    const n = qr.getModuleCount();
+    const quiet = 2;
+    const cell = Math.max(4, Math.min(8, Math.floor(240 / (n + quiet * 2))));
+    const size = (n + quiet * 2) * cell;
+    const cv = document.createElement('canvas');
+    cv.width = size; cv.height = size;
+    cv.setAttribute('aria-label', t('支付宝收款二维码'));
+    cv.style.cssText = 'display:block;margin:12px auto 6px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;image-rendering:pixelated';
+    const ctx = cv.getContext && cv.getContext('2d');
+    if (!ctx) return false;
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = '#0f172a';
+    for (let r = 0; r < n; r++) {
+      for (let c = 0; c < n; c++) {
+        if (qr.isDark(r, c)) ctx.fillRect((c + quiet) * cell, (r + quiet) * cell, cell, cell);
+      }
+    }
+    box.appendChild(cv);
+    return true;
   }
   async function payFn(payload) {
     try {
