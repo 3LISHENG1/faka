@@ -226,6 +226,9 @@
         body.appendChild(alt);
       }
       body.appendChild(el('div', 'me-note', t('付款成功后这个页面会自动到账，不用手动刷新')));
+    } else if (pay && pay.ok === false && pay.error) {
+      rcSay(t('支付宝下单失败：{err}', { err: String(pay.error) }), true);
+      body.appendChild(el('div', 'me-note', t('请稍后重试，或联系站长处理')));
     } else {
       body.appendChild(el('div', 'me-note', t('请转账 ¥{amt}，并把上面的充值单号发给站长', { amt: money(d.amount_fen) })));
       body.appendChild(el('div', 'me-note', t('站长在后台点「确认入账」后，余额会立刻到账')));

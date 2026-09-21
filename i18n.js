@@ -268,6 +268,8 @@
     "在途待支付的单子太多了，请先完成支付或稍后再试": "You have too many unpaid orders — please pay one first or try again later",
     "支付中...": "Processing…",
     "请转账 ¥{amt}，并把上面的充值单号发给站长": "Please transfer ¥{amt} and send the recharge order no. above to us",
+  "支付宝下单失败：{err}": "Alipay order failed: {err}",
+  "请稍后重试，或联系站长处理": "Please try again in a moment, or contact us for help.",
     "中文": "中文",
   };
 
