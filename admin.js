@@ -48,6 +48,34 @@ function errText(err) {
 }
 const statusTag = (s) => ({ paid: '已支付', pending: '待支付', cancelled: '已关闭' }[s] || s);
 
+/* 代发状态：订单列表里一眼看出这单有没有自动发给货源方、成功没有、卡在哪一条。
+   踩过的坑：orders 表一直有 supplier_status / supplier_ref / supplier_error，
+   但后台从没显示过，只能去 SQL Editor 查，站长完全没法判断代发是否跑通。 */
+function supplierInfo(o) {
+  const st = String((o && o.supplier_status) || '').trim();
+  const sku = String((o && o.supplier_sku_id) || '').trim();
+  const err = String((o && o.supplier_error) || '').trim();
+  const ref = String((o && o.supplier_ref) || '').trim();
+  if (!st || st === 'none') {
+    return sku
+      ? { t: '⏳ 未排队', c: 'tag-orange', tip: '商品配了对方 SKU，但这单还没进代发队列（多半是刚付款或代发开关是关的）' }
+      : { t: '不代发', c: 'tag-gray', tip: '本店自己上传卡密的商品，本来就不走代发' };
+  }
+  if (st === 'pending') return { t: '⏳ 排队待发', c: 'tag-orange', tip: '等定时任务（每分钟一次）把它发给货源方' };
+  if (st === 'submitted') return { t: '⏳ 对方出货中', c: 'tag-orange', tip: '已自动向货源方下单' + (ref ? '，对方单号 ' + ref : '') + '，等它回传卡密' };
+  if (st === 'done') return { t: '✅ 已发货', c: 'tag-green', tip: '货源方已出卡密' + (ref ? '，对方单号 ' + ref : '') };
+  if (st === 'failed') return { t: '❌ 代发失败', c: 'tag-red', tip: err ? '失败原因：' + err : '失败原因未记录' };
+  return { t: st, c: 'tag-gray', tip: err || '' };
+}
+function supplierCell(o) {
+  const td = el('td');
+  const i = supplierInfo(o);
+  const sp = el('span', 'tag ' + i.c, i.t);
+  if (i.tip) sp.title = i.tip;
+  td.appendChild(sp);
+  return td;
+}
+
 /* ---------- 视图切换 ---------- */
 function showLogin() { $('loginView').style.display = 'flex'; $('appView').style.display = 'none'; }
 function showApp() { $('loginView').style.display = 'none'; $('appView').style.display = 'block'; }
@@ -388,8 +416,11 @@ async function loadOrders() {
   $('ordersEmpty').style.display = orderCache.length ? 'none' : 'block';
   for (const o of orderCache) {
     const tr = el('tr');
-    for (const v of [o.order_id, o.goods_name, o.qty, '¥' + money(o.amount), o.email, statusTag(o.status), fmtTime(o.created_at)])
+    for (const v of [o.order_id, o.goods_name, o.qty, '¥' + money(o.amount), o.email])
       tr.appendChild(el('td', 'td-wrap', v));
+    tr.appendChild(el('td', null, statusTag(o.status)));
+    tr.appendChild(supplierCell(o));
+    tr.appendChild(el('td', null, fmtTime(o.created_at)));
     const ops = el('td');
     ops.appendChild(btn('btn btn-ghost btn-sm', '详情', () => viewOrder(o)));
     tr.appendChild(ops);
@@ -402,7 +433,9 @@ function viewOrder(o) {
   const info = el('div', 'pay-info');
   const rows = [['订单号', o.order_id], ['商品', `${o.goods_name} × ${o.qty}`], ['金额', '¥' + money(o.amount)],
     ['邮箱', o.email], ['状态', statusTag(o.status)], ['渠道', o.channel || '-'], ['交易号', o.txn_id || '-'],
+    ['代发状态', supplierInfo(o).t], ['对方单号', o.supplier_ref || '-'], ['对方 SKU', o.supplier_sku_id || '-'],
     ['下单时间', fmtTime(o.created_at)], ['支付时间', fmtTime(o.paid_at)]];
+  if (o.supplier_error) rows.push(['代发报错', String(o.supplier_error).slice(0, 300)]);
   for (const [k, v] of rows) { const r = el('div', 'row'); r.appendChild(el('span', null, k)); r.appendChild(el('b', null, v)); info.appendChild(r); }
   box.appendChild(info);
   const cards = Array.isArray(o.cards) ? o.cards : [];
