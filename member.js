@@ -199,9 +199,10 @@
     no.appendChild(el('b', null, String(d.out_trade_no)));
     no.appendChild(el('div', null, t('金额') + ' ¥' + money(d.amount_fen)));
     body.appendChild(no);
-    // 支付宝渠道：问 Edge Function 要收银台链接；没部署/没配密钥就自动按人工处理
+    // 支付宝渠道：问 Edge Function 要收银台链接。拿不到码就报错，绝不静默退回人工文案
+    const wantAlipay = d.channel === 'alipay' || d.channel === 'alipay_qr';
     let pay = null;
-    if (d.channel === 'alipay' || d.channel === 'alipay_qr') {
+    if (wantAlipay) {
       pay = await payFn({ action: 'create', out_trade_no: d.out_trade_no,
         mode: d.channel === 'alipay_qr' ? 'qr' : 'page' });
     }
@@ -226,8 +227,13 @@
         body.appendChild(alt);
       }
       body.appendChild(el('div', 'me-note', t('付款成功后这个页面会自动到账，不用手动刷新')));
-    } else if (pay && pay.ok === false && pay.error) {
-      rcSay(t('支付宝下单失败：{err}', { err: String(pay.error) }), true);
+    } else if (wantAlipay) {
+      const err = pay && pay.error ? String(pay.error)
+        : (pay && pay.ok === true ? 'NO_QR_URL' : 'NETWORK');
+      const msg = t('支付宝下单失败：{err}', { err: err });
+      rcSay(msg, true);
+      // rcMsg 会被 4 秒一次的轮询覆盖，错误必须同时钉在弹窗正文里才看得见
+      body.appendChild(el('div', 'me-note', msg));
       body.appendChild(el('div', 'me-note', t('请稍后重试，或联系站长处理')));
     } else {
       body.appendChild(el('div', 'me-note', t('请转账 ¥{amt}，并把上面的充值单号发给站长', { amt: money(d.amount_fen) })));
