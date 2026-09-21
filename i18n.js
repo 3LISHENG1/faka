@@ -130,6 +130,13 @@
     "该商品本店暂无现货卡密，订单已登记为待补发，通常几分钟内自动到货；请稍后用订单号查询。":
       "This item is out of stock right now. Your order is queued and usually fills itself within a few minutes - please check again with your order ID.",
     "已收款，卡密待补发": "Paid - keys pending",
+    "已收款，货源方正在出货": "Paid - your supplier is delivering now",
+    "系统已自动向货源方下单，一般 1~5 分钟内出卡密。这个窗口会自动刷新，也可稍后用订单号查询。":
+      "We have already placed this order with our supplier automatically. Keys usually arrive within 1-5 minutes. This window refreshes itself, or look it up later with your order ID.",
+    "刷新卡密（货源方出货中）": "Refresh keys (delivery in progress)",
+    "卡密已到，请复制保存": "Your keys have arrived - copy and save them",
+    "货源方还在出货，再等一分钟": "Still being delivered - please wait another minute",
+    "订单还在处理中，稍等半分钟再点": "Order still processing - please wait a moment before tapping again",
     "卡密发放中，请稍后再查。": "Keys are being delivered - please check again shortly.",
     "支付完成后这里会显示卡密。": "Your keys will appear here after payment.",
     "⏳ 待支付": "⏳ Unpaid",

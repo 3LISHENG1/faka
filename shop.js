@@ -59,13 +59,20 @@ function toast(msg) {
   toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
 }
 function show(id) { $(id).classList.add('show'); }
-function hide(id) { $(id).classList.remove('show'); }
+function hide(id) {
+  if (id === 'resultModal') stopCardPolling();
+  $(id).classList.remove('show');
+}
 
 /* ---------- 状态 ---------- */
 let catalog = [];
 let current = null;    // 当前选购的商品行
 let qty = 1;
 let order = null;      // rpc_create_order 返回的订单
+let orderIsSupplier = false; // 这单走不走货源代发（代发要等对方出货，几秒到几分钟）
+let resultCtx = null;        // 结果弹窗还需要的单号 + 邮箱（order 会被清空）
+let cardTimer = null;        // 结果弹窗里自动刷新卡密的定时器
+let cardTries = 0;           // 最多盯 3 分钟，之后靠订单查询
 let pollTimer = null;
 let currentCards = [];
 
@@ -694,6 +701,7 @@ async function submitOrder() {
 
     order = data;
     order.email = email;
+    orderIsSupplier = !!supplierSku(current);   // 商品带了对方 sku = 这单会自动发给货源方
     localStorage.setItem('FAKA_EMAIL', email);
     hide('buyModal');
     openPayModal();
@@ -755,8 +763,8 @@ async function balancePay() {
     if (m.refreshWallet) m.refreshWallet();
     stopPolling();
     hide('payModal');
-    order = null;
     deliver(data);
+    order = null;   // 必须等 deliver 读完 email 再清
     loadCatalog();
   } finally {
     if (b) { b.disabled = false; b.textContent = '用余额支付，秒发货'; }
@@ -809,22 +817,10 @@ function stopPolling() {
 }
 
 /* ---------- 发货展示 ---------- */
-function deliver(data) {
-  currentCards = Array.isArray(data.cards) ? data.cards : [];
-  $('resultOrderId').textContent = data.order_id;
+function paintCards(cards) {
+  currentCards = Array.isArray(cards) ? cards : [];
   const list = $('cardList');
   list.textContent = '';
-  // 没出货时不能再写「已自动发货」，否则买家同时看到两句相反的话
-  const ttl = $('resultTitle');
-  const ico = $('resultIcon');
-  if (!currentCards.length) {
-    if (ttl) ttl.textContent = '已收款，卡密待补发';
-    if (ico) { ico.textContent = '…'; ico.style.background = '#fff7e6'; ico.style.color = '#b76e00'; }
-    list.appendChild(el('div', 'hint-line', '该商品本店暂无现货卡密，订单已登记为待补发，通常几分钟内自动到货；请稍后用订单号查询。'));
-  } else {
-    if (ttl) ttl.textContent = '卡密已自动发货，请及时复制保存';
-    if (ico) { ico.textContent = '✓'; ico.style.background = '#e8f9ef'; ico.style.color = ''; }
-  }
   for (const c of currentCards) {
     const row = el('div', 'card-secret');
     const code = el('code', null, c);
@@ -835,11 +831,80 @@ function deliver(data) {
     row.appendChild(b);
     list.appendChild(row);
   }
-  const all = $('copyAllBtn');
-  all.style.display = currentCards.length ? 'block' : 'none';
-  show('resultModal');
+  $('copyAllBtn').style.display = currentCards.length ? 'block' : 'none';
 }
 
+function setResultHead(title, icon, bg, color) {
+  const ttl = $('resultTitle');
+  const ico = $('resultIcon');
+  if (ttl) ttl.textContent = title;
+  if (ico) { ico.textContent = icon; ico.style.background = bg; ico.style.color = color; }
+}
+
+function hintLine(text) {
+  const list = $('cardList');
+  list.insertBefore(el('div', 'hint-line', text), list.firstChild);
+}
+
+function stopCardPolling() {
+  if (cardTimer) { clearInterval(cardTimer); cardTimer = null; }
+}
+
+/* 货源方出货要时间：结果弹窗自己盯 3 分钟，卡密一到就地刷出来 */
+async function fetchCards(quiet) {
+  if (!resultCtx || !resultCtx.email) return;
+  const { data, error } = await supa.rpc('rpc_order_lookup', {
+    p_order_id: resultCtx.order_id, p_email: resultCtx.email,
+  });
+  if (error) { if (!quiet) toast(errText(error)); return; }
+  if (!data || data.found === false) { if (!quiet) toast('订单还在处理中，稍等半分钟再点'); return; }
+  const cards = Array.isArray(data.cards) ? data.cards : [];
+  if (cards.length) {
+    stopCardPolling();
+    paintCards(cards);
+    setResultHead('卡密已自动发货，请及时复制保存', '✓', '#e8f9ef', '');
+    const rb = $('refreshCardsBtn');
+    if (rb) rb.style.display = 'none';
+    toast('卡密已到，请复制保存');
+  } else if (!quiet) {
+    toast('货源方还在出货，再等一分钟');
+  }
+}
+
+function startCardPolling() {
+  stopCardPolling();
+  cardTries = 0;
+  cardTimer = setInterval(() => {
+    cardTries += 1;
+    if (cardTries > 18) { stopCardPolling(); return; }
+    fetchCards(true);
+  }, 10000);
+}
+
+function deliver(data) {
+  resultCtx = { order_id: data.order_id, email: (order && order.email) || '' };
+  const cards = Array.isArray(data.cards) ? data.cards : [];
+  $('resultOrderId').textContent = data.order_id;
+  paintCards(cards);
+  const rb = $('refreshCardsBtn');
+  if (cards.length) {
+    setResultHead('卡密已自动发货，请及时复制保存', '✓', '#e8f9ef', '');
+    if (rb) rb.style.display = 'none';
+    stopCardPolling();
+  } else if (orderIsSupplier) {
+    // 代发单：系统已经自动把订单发给货源方了，只是对方出卡密要几秒到几分钟
+    setResultHead('已收款，货源方正在出货', '…', '#fff7e6', '#b76e00');
+    hintLine('系统已自动向货源方下单，一般 1~5 分钟内出卡密。这个窗口会自动刷新，也可稍后用订单号查询。');
+    if (rb) rb.style.display = 'block';
+    startCardPolling();
+  } else {
+    setResultHead('已收款，卡密待补发', '…', '#fff7e6', '#b76e00');
+    hintLine('该商品本店暂无现货卡密，订单已登记为待补发，通常几分钟内自动到货；请稍后用订单号查询。');
+    if (rb) rb.style.display = 'none';
+    stopCardPolling();
+  }
+  show('resultModal');
+}
 function copyText(text, btn) {
   const done = () => {
     toast('已复制');
@@ -925,7 +990,7 @@ function bind() {
   document.querySelectorAll('[data-close]').forEach((b) =>
     b.addEventListener('click', () => hide(b.getAttribute('data-close'))));
   document.querySelectorAll('.modal-mask').forEach((m) =>
-    m.addEventListener('click', (e) => { if (e.target === m && m.id !== 'payModal') m.classList.remove('show'); }));
+    m.addEventListener('click', (e) => { if (e.target === m && m.id !== 'payModal') hide(m.id); }));
 
   $('qtyMinus').addEventListener('click', () => changeQty(-1));
   $('qtyPlus').addEventListener('click', () => changeQty(1));
@@ -936,6 +1001,9 @@ function bind() {
   // 充值到账以后重画一次支付弹窗里的余额
   document.addEventListener('faka-wallet', () => { if ($('payModal') && $('payModal').classList.contains('show')) paintBalanceRow(); });
   $('copyAllBtn').addEventListener('click', () => copyText(currentCards.join('\n'), null));
+  // 按钮在 index.html 里；万一只传了 js 没传 html，也不能连累后面的事件绑定
+  const rcb = $('refreshCardsBtn');
+  if (rcb) rcb.addEventListener('click', () => fetchCards(false));
   $('doQueryBtn').addEventListener('click', doQuery);
   $('queryEmail').addEventListener('keydown', (e) => { if (e.key === 'Enter') doQuery(); });
   $('buyEmail').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitOrder(); });
