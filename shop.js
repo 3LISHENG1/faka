@@ -814,8 +814,16 @@ function deliver(data) {
   $('resultOrderId').textContent = data.order_id;
   const list = $('cardList');
   list.textContent = '';
+  // 没出货时不能再写「已自动发货」，否则买家同时看到两句相反的话
+  const ttl = $('resultTitle');
+  const ico = $('resultIcon');
   if (!currentCards.length) {
-    list.appendChild(el('div', 'hint-line', '该商品卡密暂时不足，已记录待人工补发，请稍后凭订单号查询。'));
+    if (ttl) ttl.textContent = '已收款，卡密待补发';
+    if (ico) { ico.textContent = '…'; ico.style.background = '#fff7e6'; ico.style.color = '#b76e00'; }
+    list.appendChild(el('div', 'hint-line', '该商品本店暂无现货卡密，订单已登记为待补发，通常几分钟内自动到货；请稍后用订单号查询。'));
+  } else {
+    if (ttl) ttl.textContent = '卡密已自动发货，请及时复制保存';
+    if (ico) { ico.textContent = '✓'; ico.style.background = '#e8f9ef'; ico.style.color = ''; }
   }
   for (const c of currentCards) {
     const row = el('div', 'card-secret');

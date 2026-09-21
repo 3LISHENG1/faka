@@ -127,8 +127,9 @@
     "已复制": "Copied",
     "✓ 已复制": "✓ Copied",
     "复制失败，请手动选择": "Copy failed - please select the text manually",
-    "该商品卡密暂时不足，已记录待人工补发，请稍后凭订单号查询。":
-      "We are short on keys for this item; our team will top it up manually. Please check again with your order ID.",
+    "该商品本店暂无现货卡密，订单已登记为待补发，通常几分钟内自动到货；请稍后用订单号查询。":
+      "This item is out of stock right now. Your order is queued and usually fills itself within a few minutes - please check again with your order ID.",
+    "已收款，卡密待补发": "Paid - keys pending",
     "卡密发放中，请稍后再查。": "Keys are being delivered - please check again shortly.",
     "支付完成后这里会显示卡密。": "Your keys will appear here after payment.",
     "⏳ 待支付": "⏳ Unpaid",
