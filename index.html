@@ -200,6 +200,18 @@
     .c-price { width: 78px; } .c-buy { width: 64px; }
   }
   .hint-line { font-size:13px; color:var(--text-sub); text-align:center; padding:10px 0; line-height:1.6; }
+.notice { background:#fffbef; border:1px solid #fdeeb8; border-radius:14px; padding:14px 18px 8px; margin-top:14px; }
+.notice h4 { font-size:14px; margin:0 0 8px; color:#8a5a00; }
+.notice ol { margin:0 0 6px; padding-left:20px; }
+.notice li { font-size:13px; line-height:1.9; color:#6b4b12; word-break:break-word; }
+.notice li.hot { color:var(--danger); font-weight:600; }
+.notice.mini { margin:0 0 14px; padding:11px 14px 5px; max-height:160px; overflow-y:auto; }
+.notice.mini h4 { font-size:13px; }
+.notice.mini li { font-size:12px; line-height:1.75; }
+.tg { color:var(--primary); text-decoration:none; font-weight:600; }
+.tg:hover { text-decoration:underline; }
+.foot { margin:34px 0 10px; padding:18px 6px 0; border-top:1px solid var(--border); text-align:center; }
+.foot p { font-size:12px; color:var(--text-sub); line-height:1.95; margin:0; }
   .pay-info b { word-break:break-all; }
 /* 会员 / 双语 · 新增控件 */
 .btn-sm{padding:5px 10px;font-size:12.5px;border-radius:8px}
@@ -237,8 +249,8 @@
 </style>
 <script src="config.js?v=ba9097e1e8"></script>
 <script src="supabase-2.116.0.min.js" integrity="sha384-JBR+x8blGwjDRO63aHCGiZMD4VNiTR4ZUGA+N6ZKLf3zNt1fK8IBpcgPaMrxqWBp" crossorigin="anonymous"></script>
-<script src="i18n.js?v=e969aff83f" defer></script>
-<script src="shop.js?v=f84a2dbd23" defer></script>
+<script src="i18n.js?v=b75db34e30" defer></script>
+<script src="shop.js?v=559b8a04d1" defer></script>
 <script src="qr.js?v=18ae399f81" integrity="sha384-8FWZA6BGMXhsfO+BLtrJK0We6gg5o1JyO8xQm6peWDEUs17ACA5ziE/NIAkl9z2k" crossorigin="anonymous" defer></script>
 <script src="member.js?v=7923775ab8" defer></script>
 </head>
@@ -307,6 +319,7 @@
       </div>
     </div>
     <div class="form-item"><label>接收邮箱（用于查询订单，请填写你本人的邮箱）</label><input type="email" id="buyEmail" placeholder="例如：you@example.com" maxlength="254" autocomplete="email"></div>
+    <div id="buyNotice"></div>
     <div class="total-row"><span class="label">合计</span><span class="amount">¥ <span id="totalPrice">0.00</span></span></div>
     <button type="button" class="btn btn-primary btn-block" id="submitOrderBtn">立即下单</button>
   </div>
@@ -360,7 +373,8 @@
     </div>
     <div id="cardList"></div>
     <button type="button" class="btn btn-primary btn-block" style="margin-top:8px" id="copyAllBtn">一键复制全部卡密</button>
-    <button type="button" class="btn btn-ghost btn-block" style="margin-top:8px;display:none" id="refreshCardsBtn">刷新卡密（货源方出货中）</button>
+    <button type="button" class="btn btn-primary btn-block" style="margin-top:8px;display:none" id="refreshCardsBtn">刷新卡密（货源方出货中）</button>
+    <div class="hint-line">没看到卡密？稍后用订单号 + 下单邮箱在「订单查询」里随时查看。客服 TG：<a class="tg" href="https://t.me/abjb1" target="_blank" rel="noopener noreferrer">@abjb1</a></div>
   </div>
 </div>
 
@@ -400,6 +414,10 @@
   </div>
 </div>
 
+<footer class="foot">
+  <p>所有商品只用来社交和沟通贸易，不做其他违法活动。全部交易只走本站平台，勿私下交易。</p>
+  <p>客服 TG：<a class="tg" href="https://t.me/abjb1" target="_blank" rel="noopener noreferrer">@abjb1</a></p>
+</footer>
 <div id="toast"></div>
 </body>
 </html>

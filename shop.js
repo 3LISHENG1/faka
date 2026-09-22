@@ -323,6 +323,47 @@ function paint() {
   }
 }
 
+/* ---------- 下单提示文案（详情页与下单弹窗共用这一份，改这里就够） ---------- */
+const TG_USER = 'abjb1';
+const TG_URL = 'https://t.me/' + TG_USER;
+const NOTICE = [
+  { t: '所有商品只用来社交和沟通贸易，不做其他违法活动。' },
+  { t: '下单后在「订单查询」里查看卡密（订单号 + 下单邮箱）。' },
+  { tg: true },
+  { t: '登录两小时内不要改密码；长久使用请一定要改密码、邮箱和手机！' },
+  { t: '※ 非账号密码错误一概不退号，购买前请少量测试，一账号一 IP 登录！', hot: true },
+  { t: '※ 质保 24 小时内的首次登录，没技术不要囤号，囤号被风控不售后。', hot: true },
+  { t: '防被骗：全部交易只走网站平台，勿私下交易。' },
+  { t: '虚拟商品一经发出概不退换；单次可买 1~10 件。' },
+];
+function tgLink() {
+  const a = document.createElement('a');
+  a.className = 'tg';
+  a.textContent = '@' + TG_USER;
+  a.href = TG_URL;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  return a;
+}
+function noticeBlock(mini) {
+  const box = el('div', 'notice' + (mini ? ' mini' : ''));
+  box.appendChild(el('h4', null, '购买须知'));
+  const ol = document.createElement('ol');
+  for (const n of NOTICE) {
+    const li = document.createElement('li');
+    if (n.hot) li.className = 'hot';
+    if (n.tg) {
+      li.appendChild(document.createTextNode('客服 TG：'));
+      li.appendChild(tgLink());
+    } else {
+      li.textContent = n.t;
+    }
+    ol.appendChild(li);
+  }
+  box.appendChild(ol);
+  return box;
+}
+
 /* ---------- 库存：自营看本店卡密，代发看对方库存（rpc_catalog 一并带出） ---------- */
 function supplierSku(g) {
   return String((g && g.supplier_sku_id) || '').trim();
@@ -645,7 +686,7 @@ function renderDetail() {
   card.appendChild(infoBlock('发货方式', sku
     ? '货源直发：付款后系统自动向货源方下单，卡密回传后发到你的邮箱'
     : '本店卡密：付款后立即发放'));
-  card.appendChild(infoBlock('购买须知', '虚拟商品一经发出概不退换；单次可买 1~10 件，卡密会发到下单邮箱，也可在「订单查询」用订单号 + 邮箱随时查看。'));
+  card.appendChild(noticeBlock(false));   // 取代原来那条单行「购买须知」，小节数量不变
   box.appendChild(card);
 }
 /* ---------- 购买 ---------- */
@@ -666,6 +707,8 @@ function openBuy(g, presetQty) {
   if (hint) hint.textContent = supplierSku(g)
     ? (sinfo.max >= 10 ? '（货源直发，单次 1~10 件）' : `（货源仅剩 ${sinfo.max} 件，单次最多 ${sinfo.max} 件）`)
     : `（剩余库存 ${Number(g.stock) || 0} 张）`;
+  const bn = $('buyNotice');
+  if (bn) { bn.textContent = ''; bn.appendChild(noticeBlock(true)); }   // 每次打开都重渲染，切语言也不会残留旧文案
   updateTotal();
   show('buyModal');
   $('buyEmail').focus();
