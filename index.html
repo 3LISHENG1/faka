@@ -249,11 +249,51 @@
 .me-line small{color:var(--text-sub)}
 @media (max-width:560px){.me-kv,.me-line{font-size:13.5px}}
 
+
+/* ---------- 移动端：底部导航 + 分类抽屉（照货源站那种排布） ---------- */
+.tabbar { display: none; }
+.cat-pill { display: none; }
+.ptable td .lab { display: none; font-style: normal; font-weight: 400; color: var(--text-sub); }
+.sheet-mask { position: fixed; inset: 0; background: rgba(15, 23, 42, .45); z-index: 96; opacity: 0; pointer-events: none; transition: opacity .2s; }
+.sheet-mask.on { opacity: 1; pointer-events: auto; }
+.sheet { position: absolute; left: 0; right: 0; bottom: 0; max-height: 74vh; background: #fff; border-radius: 18px 18px 0 0; display: flex; flex-direction: column; transform: translateY(100%); transition: transform .22s ease; }
+.sheet-mask.on .sheet { transform: translateY(0); }
+.sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--border); font-size: 15px; font-weight: 600; }
+.sheet-list { overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 4px 0 18px; }
+.sheet-item { display: flex; align-items: center; gap: 12px; width: 100%; border: 0; border-bottom: 1px solid #f1f5f9; background: transparent; font: inherit; text-align: left; padding: 12px 16px; cursor: pointer; }
+.sheet-item .cat-icon { flex: 0 0 34px; width: 34px; height: 34px; border-radius: 9px; background: #f1f5f9; display: flex; align-items: center; justify-content: center; font-size: 18px; }
+.sheet-item b { font-size: 14.5px; font-weight: 600; }
+.sheet-item small { color: var(--text-sub); font-weight: 400; margin-left: 5px; }
+.sheet-item .arrow { margin-left: auto; color: #cbd5e1; font-size: 18px; }
+.sheet-item.on b { color: var(--primary); }
+@media (max-width: 860px) {
+  body { padding-bottom: 62px; }
+  header .btn { padding: 6px 10px; font-size: 12.5px; }
+  header a[href="totp.html"], header [data-act="open-query"] { display: none; }
+  .side { display: none; }
+  .tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 97; display: grid; grid-template-columns: repeat(5, 1fr); background: rgba(255, 255, 255, .97); border-top: 1px solid var(--border); padding-bottom: env(safe-area-inset-bottom); }
+  .tab { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; border: 0; background: transparent; font: inherit; font-size: 11.5px; color: var(--text-sub); padding: 7px 0 6px; cursor: pointer; text-decoration: none; }
+  .tab-ico { font-size: 18px; line-height: 1; }
+  .tab.on { color: var(--primary); font-weight: 600; }
+  .cat-pill { display: flex; align-items: center; gap: 6px; margin: 8px 0 0; font-size: 12.5px; color: var(--text-sub); }
+  .cat-pill b { color: var(--primary); font-weight: 600; }
+  .cat-pill button { margin-left: auto; border: 1px solid var(--border); background: #fff; border-radius: 20px; padding: 3px 10px; font-size: 12px; cursor: pointer; color: var(--text-sub); }
+  .pcard-head { padding: 12px 14px; }
+  .ptable thead { display: none; }
+  .ptable, .ptable tbody { display: block; }
+  .ptable tr { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 11px 14px; border-bottom: 1px solid #f1f5f9; }
+  .ptable td { display: block; padding: 0; border: 0; }
+  .ptable td.cell-name { flex: 1 1 100%; }
+  .ptable td.c-price { flex: 0 0 auto; color: var(--danger); font-weight: 700; }
+  .ptable td.c-stock, .ptable td.c-sold { flex: 0 0 auto; font-size: 12.5px; color: var(--text-sub); }
+  .ptable td .lab { display: inline; }
+  .ptable td.c-buy { flex: 0 0 auto; margin-left: auto; }
+}
 </style>
 <script src="config.js?v=79f9a06ef0"></script>
 <script src="supabase-2.116.0.min.js" integrity="sha384-JBR+x8blGwjDRO63aHCGiZMD4VNiTR4ZUGA+N6ZKLf3zNt1fK8IBpcgPaMrxqWBp" crossorigin="anonymous"></script>
-<script src="i18n.js?v=56f0e3a71b" defer></script>
-<script src="shop.js?v=51e17a9467" defer></script>
+<script src="i18n.js?v=ede941ff5b" defer></script>
+<script src="shop.js?v=69d844629c" defer></script>
 <script src="qr.js?v=18ae399f81" integrity="sha384-8FWZA6BGMXhsfO+BLtrJK0We6gg5o1JyO8xQm6peWDEUs17ACA5ziE/NIAkl9z2k" crossorigin="anonymous" defer></script>
 <script src="member.js?v=7923775ab8" defer></script>
 </head>
@@ -296,6 +336,7 @@
           <button type="button" id="viewGridBtn" title="卡片视图">▦</button>
         </div>
       </div>
+      <div class="cat-pill" id="catPill" style="display:none"></div>
       <div class="shop-count" id="shopCount"></div>
       <div class="rows" id="goodsGrid"></div>
       <div class="more-row" id="moreRow" style="display:none">
@@ -308,6 +349,23 @@
 </div>
 
 <footer>本站商品均为虚拟商品，一经售出概不退换</footer>
+
+<!-- 移动端底部导航（桌面端用 CSS 隐藏） -->
+<nav class="tabbar" id="tabBar" aria-label="导航">
+  <button type="button" class="tab on" id="tabHome" data-tab="home"><span class="tab-ico">🏪</span><span>首页</span></button>
+  <button type="button" class="tab" id="tabCat" data-tab="cat"><span class="tab-ico">🗂️</span><span>分类</span></button>
+  <button type="button" class="tab" data-act="open-query"><span class="tab-ico">🧾</span><span>订单</span></button>
+  <a class="tab" href="totp.html"><span class="tab-ico">🛡️</span><span>2FA</span></a>
+  <button type="button" class="tab" id="tabMe" data-tab="me"><span class="tab-ico">👤</span><span>我的</span></button>
+</nav>
+
+<!-- 移动端分类抽屉：手机端没有左侧分类栏，分类从这里选 -->
+<div class="sheet-mask" id="catSheet">
+  <div class="sheet">
+    <div class="sheet-head"><span>商品分类</span><button type="button" class="close" id="catSheetClose">✕</button></div>
+    <div class="sheet-list" id="catSheetList"></div>
+  </div>
+</div>
 
 <!-- 购买弹窗 -->
 <div class="modal-mask" id="buyModal">

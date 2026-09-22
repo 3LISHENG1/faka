@@ -238,6 +238,14 @@ function stockCellText(g) {
   return { text: '不限量', cls: 'ok' };
 }
 
+// 手机端没有表头，把「库存 / 已售」这两个字塞进单元格，桌面端用 CSS 隐藏
+function labTd(cls, lab, val) {
+  const td = el('td', cls);
+  td.appendChild(el('i', 'lab', lab + ':'));
+  td.appendChild(el('span', 'v', val));
+  return td;
+}
+
 function renderRow(g, icon) {
   const tr = el('tr');
   const cell = el('td', 'cell-name');
@@ -252,8 +260,8 @@ function renderRow(g, icon) {
   tr.appendChild(cell);
   tr.appendChild(el('td', 'c-price', '¥' + money(g.price)));
   const st = stockCellText(g);
-  tr.appendChild(el('td', 'c-stock' + (st.cls ? ' ' + st.cls : ''), st.text));
-  tr.appendChild(el('td', 'c-sold', String(Number(g.sales) || 0)));
+  tr.appendChild(labTd('c-stock' + (st.cls ? ' ' + st.cls : ''), '库存', st.text));
+  tr.appendChild(labTd('c-sold', '已售', String(Number(g.sales) || 0)));
   const buy = el('td', 'c-buy');
   const info = stockInfo(g);
   const b = el('button', 'buy-link', info.sellable ? '购买' : '缺货');
@@ -288,6 +296,7 @@ function renderTable(cat, items, icon) {
 }
 
 function paint() {
+  syncTab();
   const grid = $('goodsGrid');
   const moreRow = $('moreRow');
   const count = $('shopCount');
@@ -302,6 +311,8 @@ function paint() {
   }
   const cur = currentList();
   renderCats(cur.cats, cur.base);
+  renderSheet(cur.cats);
+  renderPill();
   if (!cur.list.length) {
     grid.appendChild(el('div', 'empty', '没有匹配的商品，换个关键词试试'));
     if (count) count.textContent = '共 0 个';
@@ -540,6 +551,8 @@ function findGoods(id) {
 function goDetail(g) { location.hash = '#/g/' + g.id; }
 
 function route() {
+  syncTab();
+  sheetOpen(false);
   const m = /^#\/g\/(\d+)$/.exec(location.hash || '');
   // #/me 之类由会员模块自己画，它接管时这里直接返回
   if (window.FakaMember && window.FakaMember.route(location.hash || '')) return;
@@ -692,6 +705,62 @@ function renderDetail() {
   card.appendChild(noticeBlock(false));   // 取代原来那条单行「购买须知」，小节数量不变
   box.appendChild(card);
 }
+/* ---------- 移动端：底部导航 + 分类抽屉 ----------
+ 手机端隐藏了左侧分类栏（.side），分类改从底部「分类」按钮弹出的抽屉里选。 */
+function sheetOpen(on) {
+  const m = $('catSheet');
+  if (!m) return;
+  m.classList.toggle('on', !!on);
+  const bd = document.body;
+  if (bd && bd.style) bd.style.overflow = on ? 'hidden' : '';
+}
+
+function renderSheet(cats) {
+  const box = $('catSheetList');
+  if (!box) return;
+  box.textContent = '';
+  let total = 0;
+  for (const c of cats) total += c[1];
+  const icons = iconsOf();
+  const row = (label, n, key, icon, sub) => {
+    const b = el('button', 'sheet-item' + (catKey === key ? ' on' : ''));
+    b.type = 'button';
+    b.setAttribute('data-cat', key);
+    b.appendChild(el('span', 'cat-icon', icon || '📦'));
+    const t = el('span', 'cat-text');
+    t.appendChild(el('b', null, label));
+    t.appendChild(el('small', null, sub || String(n)));
+    b.appendChild(t);
+    b.appendChild(el('span', 'arrow', '›'));
+    return b;
+  };
+  box.appendChild(row('全部商品', 0, '', '🗂️', total + ' 个商品'));
+  for (const c of cats) box.appendChild(row(c[0], c[1], c[0], icons.get(c[0])));
+}
+
+function renderPill() {
+  const p = $('catPill');
+  if (!p) return;
+  p.textContent = '';
+  p.style.display = catKey ? 'flex' : 'none';
+  if (!catKey) return;
+  p.appendChild(el('span', null, '当前分类：'));
+  p.appendChild(el('b', null, catKey));
+  const x = el('button', null, '清除');
+  x.type = 'button';
+  x.addEventListener('click', () => { catKey = ''; shown = PAGE_SIZE; paint(); });
+  p.appendChild(x);
+}
+
+function syncTab() {
+  const on = (id, v) => { const b = $(id); if (b) b.classList.toggle('on', v); };
+  const h = String(location.hash || '');
+  const me = h === '#/me';
+  on('tabHome', !me && h.indexOf('#/g/') !== 0);
+  on('tabCat', false);
+  on('tabMe', me);
+}
+
 /* ---------- 购买 ---------- */
 function openBuy(g, presetQty) {
   current = g;
@@ -1079,6 +1148,40 @@ function bind() {
   if (vl) vl.addEventListener('click', () => setViewMode('list'));
   const vg = $('viewGridBtn');
   if (vg) vg.addEventListener('click', () => setViewMode('grid'));
+  // 移动端底部导航与分类抽屉
+  const tb = $('tabBar');
+  if (tb) tb.addEventListener('click', (e) => {
+    const b = e.target.closest ? e.target.closest('[data-tab]') : null;
+    if (!b) return;
+    const k = b.getAttribute('data-tab');
+    if (k === 'home') {
+      catKey = ''; keyword = ''; shown = PAGE_SIZE;
+      const s = $('searchBox'); if (s) s.value = '';
+      if (location.hash) location.hash = ''; else paint();
+      window.scrollTo(0, 0);
+    }
+    if (k === 'cat') { renderSheet(currentList().cats); sheetOpen(true); }
+    // 「我的」不走 data-act：member.js 的 paintBtns 会按登录态重写所有
+    // [data-act="open-account"] 的文字，那样底部标签会被撑成一长串钱包信息
+    if (k === 'me') {
+      const M = window.FakaMember;
+      if (!M) return;
+      if (M.me && M.me()) location.hash = '#/me'; else M.openAuth('login');
+    }
+  });
+  const cs = $('catSheet');
+  if (cs) cs.addEventListener('click', (e) => {
+    if (e.target === cs) { sheetOpen(false); return; }
+    const b = e.target.closest ? e.target.closest('[data-cat]') : null;
+    if (!b) return;
+    catKey = b.getAttribute('data-cat') || '';
+    shown = PAGE_SIZE;
+    paint();
+    sheetOpen(false);
+  });
+  const csc = $('catSheetClose');
+  if (csc) csc.addEventListener('click', () => sheetOpen(false));
+
   window.addEventListener('hashchange', route);
   // 语言切换：中文是原文，切英文时重画一遍最稳（避免把已经翻过的再翻一次）
   document.addEventListener('faka-lang', () => { loadSite().then(route); });
