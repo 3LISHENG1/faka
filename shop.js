@@ -345,8 +345,8 @@ function tgLink() {
   a.rel = 'noopener noreferrer';
   return a;
 }
-function noticeBlock(mini) {
-  const box = el('div', 'notice' + (mini ? ' mini' : ''));
+function noticeBlock(mini, extraCls) {
+  const box = el('div', 'notice' + (mini ? ' mini' : '') + (extraCls ? ' ' + extraCls : ''));
   box.appendChild(el('h4', null, '购买须知'));
   const ol = document.createElement('ol');
   for (const n of NOTICE) {
@@ -1097,6 +1097,8 @@ function getRef() {
 
 document.addEventListener('DOMContentLoaded', async () => {
   captureRef();
+  const hn = $('homeNotice');
+  if (hn) hn.appendChild(noticeBlock(true, 'home'));   // 声明要放在第一屏，不能只藏在详情页和页脚
   loadViewMode();
   bind();
   paintViewBtns();

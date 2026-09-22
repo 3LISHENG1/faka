@@ -208,6 +208,9 @@
 .notice.mini { margin:0 0 14px; padding:11px 14px 5px; max-height:160px; overflow-y:auto; }
 .notice.mini h4 { font-size:13px; }
 .notice.mini li { font-size:12px; line-height:1.75; }
+.notice.home { margin-top:14px; padding:12px 18px 6px; }
+.notice.home h4 { font-size:13.5px; }
+@media (min-width:900px) { .notice.home ol { columns:2; column-gap:30px; } .notice.home li { break-inside:avoid; } }
 .tg { color:var(--primary); text-decoration:none; font-weight:600; }
 .tg:hover { text-decoration:underline; }
 .foot { margin:34px 0 10px; padding:18px 6px 0; border-top:1px solid var(--border); text-align:center; }
@@ -250,7 +253,7 @@
 <script src="config.js?v=ba9097e1e8"></script>
 <script src="supabase-2.116.0.min.js" integrity="sha384-JBR+x8blGwjDRO63aHCGiZMD4VNiTR4ZUGA+N6ZKLf3zNt1fK8IBpcgPaMrxqWBp" crossorigin="anonymous"></script>
 <script src="i18n.js?v=b75db34e30" defer></script>
-<script src="shop.js?v=559b8a04d1" defer></script>
+<script src="shop.js?v=4b2d9b342d" defer></script>
 <script src="qr.js?v=18ae399f81" integrity="sha384-8FWZA6BGMXhsfO+BLtrJK0We6gg5o1JyO8xQm6peWDEUs17ACA5ziE/NIAkl9z2k" crossorigin="anonymous" defer></script>
 <script src="member.js?v=7923775ab8" defer></script>
 </head>
@@ -277,6 +280,7 @@
     </aside>
     <main class="main">
       <div class="announcement"><span>📢</span><span id="announcement">正在加载...</span></div>
+      <div id="homeNotice"></div>
       <div class="shop-tools">
         <span class="tools-title"><span>≡</span><span>商品列表</span></span>
         <input type="search" id="searchBox" class="shop-search" maxlength="60" autocomplete="off"
