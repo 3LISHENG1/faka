@@ -203,8 +203,11 @@
     const wantAlipay = d.channel === 'alipay' || d.channel === 'alipay_qr';
     let pay = null;
     if (wantAlipay) {
+      const wait = el('div', 'me-note', t('正在连接支付宝，最多需要 30 秒，请稍候…'));
+      body.appendChild(wait);
       pay = await payFn({ action: 'create', out_trade_no: d.out_trade_no,
         mode: d.channel === 'alipay_qr' ? 'qr' : 'page' });
+      if (wait.parentNode) wait.parentNode.removeChild(wait);
     }
     if (pay && pay.ok === true && pay.mode === 'alipay' && (pay.qr_url || pay.pay_url)) {
       if (pay.qr_url) {
@@ -270,13 +273,25 @@
     return true;
   }
   async function payFn(payload) {
+    const opt = { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) };
+    // 支付宝网关最坏要等 2 x 12 秒，再叠上函数冷启动；浏览器侧再兜一个 35 秒上限，
+    // 绝不让「生成充值单」按钮无限灰着而不给任何解释。
     try {
-      const res = await fetch(CFG.SUPA_URL.replace(/\/+$/, '') + '/functions/v1/alipay-pay', {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload),
-      });
-      const txt = await res.text();
-      try { return JSON.parse(txt); } catch { return null; }
-    } catch { return null; }
+      if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+        opt.signal = AbortSignal.timeout(35000);
+      }
+    } catch (e) { /* 老浏览器没这个 API，忽略即可 */ }
+    let res = null;
+    try { res = await fetch(CFG.SUPA_URL.replace(/\/+$/, '') + '/functions/v1/alipay-pay', opt); }
+    catch (e) { return { ok: false, mode: 'manual', error: 'NETWORK' }; }
+    if (!res || typeof res.text !== 'function') return { ok: false, mode: 'manual', error: 'NETWORK' };
+    let txt = '';
+    try { txt = await res.text(); } catch (e) { return { ok: false, mode: 'manual', error: 'NETWORK' }; }
+    // status 可能拿不到（测试桩就没有），所以只在明确不是 200 时才判定失败
+    if (typeof res.status === 'number' && res.status !== 200) {
+      return { ok: false, mode: 'manual', error: 'HTTP_' + res.status };
+    }
+    try { return JSON.parse(txt); } catch (e) { return { ok: false, mode: 'manual', error: 'BAD_JSON' }; }
   }
   function startRcPoll() {
     stopRcPoll();

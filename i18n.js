@@ -296,6 +296,7 @@
     "支付中...": "Processing…",
     "请转账 ¥{amt}，并把上面的充值单号发给站长": "Please transfer ¥{amt} and send the recharge order no. above to us",
   "支付宝下单失败：{err}": "Alipay order failed: {err}",
+  "正在连接支付宝，最多需要 30 秒，请稍候…": "Connecting to Alipay - this can take up to 30 seconds...",
   "请稍后重试，或联系站长处理": "Please try again in a moment, or contact us for help.",
     "中文": "中文",
   };
