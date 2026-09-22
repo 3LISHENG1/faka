@@ -283,11 +283,15 @@
   .ptable, .ptable tbody { display: block; }
   .ptable tr { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 11px 14px; border-bottom: 1px solid #f1f5f9; }
   .ptable td { display: block; padding: 0; border: 0; }
-  .ptable td.cell-name { flex: 1 1 100%; }
   .ptable td.c-price { flex: 0 0 auto; color: var(--danger); font-weight: 700; }
   .ptable td.c-stock, .ptable td.c-sold { flex: 0 0 auto; font-size: 12.5px; color: var(--text-sub); }
   .ptable td .lab { display: inline; }
   .ptable td.c-buy { flex: 0 0 auto; margin-left: auto; }
+  .ptable td.cell-name { flex: 1 1 100%; max-width: none; }
+  .ptable td.cell-name .cell-in { align-items: flex-start; gap: 8px; }
+  .ptable td.cell-name .row-name { min-width: 0; font-size: 14.5px; font-weight: 600; line-height: 1.5; color: var(--text); white-space: normal; overflow: visible; text-overflow: clip; }
+  .ptable td.cell-name .row-icon { margin-top: 1px; }
+  .ptable td.c-sold { display: block; }
 }
 </style>
 <script src="config.js?v=79f9a06ef0"></script>
