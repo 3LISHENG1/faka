@@ -152,6 +152,7 @@ async function loadDashboard() {
   const tbody = document.querySelector('#recentTable tbody');
   tbody.textContent = '';
   const recent = (orders || []).slice(0, 5);
+  loadDashAlerts();
   $('recentEmpty').style.display = recent.length ? 'none' : 'block';
   for (const o of recent) {
     const tr = el('tr');
@@ -159,6 +160,63 @@ async function loadDashboard() {
     tr.appendChild(el('td', null, statusTag(o.status)));
     tr.appendChild(el('td', null, fmtTime(o.created_at)));
     tbody.appendChild(tr);
+  }
+}
+
+/* 仪表盘告警条。
+   起因：2026-09-17 一笔单代发失败躺了整整一周没人发现 —— 因为「❌ 代发失败」
+   只是订单列表里一个小标签，站长不主动点进「订单」页就永远看不到。
+   收钱不发货是最要命的事，必须一登录就在脸上。 */
+async function loadDashAlerts() {
+  const box = $('dashAlerts');
+  if (!box) return;
+  box.textContent = '';
+  let failed = null, retrying = null, cfg = null;
+  try {
+    const [f, r, c] = await Promise.all([
+      supa.from('orders').select('order_id,amount,supplier_error').eq('status', 'paid')
+        .eq('supplier_status', 'failed').order('created_at', { ascending: false }).limit(50),
+      supa.from('orders').select('id', { count: 'exact', head: true }).eq('status', 'paid')
+        .in('supplier_status', ['pending', 'submitted']).neq('supplier_error', ''),
+      supa.from('supplier_config').select('enabled,paused_reason').eq('id', 'supplier').limit(1),
+    ]);
+    failed = f; retrying = r; cfg = c;
+  } catch (e) { return; }   // 取不到就算了，不能因为告警条把仪表盘搞挂
+
+  const rows = [];
+  const c0 = cfg && cfg.data && cfg.data[0] ? cfg.data[0] : null;
+  if (c0 && c0.enabled === false && String(c0.paused_reason || '').trim()) {
+    rows.push(['#dc2626', '#fef2f2', '🚨 货源代发已被熔断关闭',
+      String(c0.paused_reason).trim() +
+      ' 因余额不足失败的单会在你重新开启的那一刻自动补跑，不用手动处理。']);
+  }
+  const fl = (failed && failed.data) || [];
+  if (fl.length) {
+    const fen = fl.reduce((s, o) => s + (Number(o.amount) || 0), 0);
+    const first = String(fl[0].supplier_error || '').slice(0, 160);
+    rows.push(['#dc2626', '#fef2f2',
+      '🚨 ' + fl.length + ' 笔已付款订单代发失败，共 ¥' + money(fen) + ' —— 钱收了货没出',
+      '最新一笔 ' + fl[0].order_id + ' 的报错：' + (first || '（未记录）') +
+      '。对方缺货 / 已取消这类不会自动重试，要么换 SKU 重下，要么给买家退款' +
+      '（后台 → 钱包充值 → 找到该会员 → 调整余额，备注写「订单 ' + fl[0].order_id + ' 退款」）。']);
+  }
+  const rc = Number((retrying && retrying.count) || 0);
+  if (rc > 0) {
+    rows.push(['#d97706', '#fffbeb', '⏳ ' + rc + ' 笔订单正在自动重试',
+      '超时 / 断网这类可恢复错误每分钟再试一次，不用管。变成上面那条红色才需要人工。']);
+  }
+  for (const [color, bg, title, body] of rows) {
+    const d = el('div');
+    d.style.cssText = 'border:1px solid ' + color + ';background:' + bg +
+      ';border-left:5px solid ' + color + ';border-radius:10px;padding:12px 14px;margin:0 0 12px';
+    const t = el('div', null, title);
+    t.style.cssText = 'font-weight:700;color:' + color + ';margin-bottom:4px';
+    const p = el('div', null, body);
+    p.style.cssText = 'font-size:13px;line-height:1.6;color:#374151';
+    const go = btn('btn btn-sm', '去订单页', () => switchView('orders'));
+    go.style.marginTop = '8px';
+    d.appendChild(t); d.appendChild(p); d.appendChild(go);
+    box.appendChild(d);
   }
 }
 
