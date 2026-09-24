@@ -174,7 +174,7 @@ async function loadDashAlerts() {
   let failed = null, retrying = null, cfg = null;
   try {
     const [f, r, c] = await Promise.all([
-      supa.from('orders').select('order_id,amount,supplier_error').eq('status', 'paid')
+      supa.from('orders').select('order_id,amount,supplier_error,member_id,email').eq('status', 'paid')
         .eq('supplier_status', 'failed').order('created_at', { ascending: false }).limit(50),
       supa.from('orders').select('id', { count: 'exact', head: true }).eq('status', 'paid')
         .in('supplier_status', ['pending', 'submitted']).neq('supplier_error', ''),
@@ -193,12 +193,25 @@ async function loadDashAlerts() {
   const fl = (failed && failed.data) || [];
   if (fl.length) {
     const fen = fl.reduce((s, o) => s + (Number(o.amount) || 0), 0);
-    const first = String(fl[0].supplier_error || '').slice(0, 160);
+    const o0 = fl[0];
+    const first = String(o0.supplier_error || '').slice(0, 160);
+    // 退款要落到具体的人头上，所以顺手把买家用户名查出来。
+    // 查不到就退回「会员 #id」或下单邮箱，总之不能让告警条自己挂掉。
+    const mid = Number(o0.member_id) || 0;
+    let who = mid ? '会员 #' + mid : (String(o0.email || '').trim() || '这个买家');
+    if (mid) {
+      try {
+        const mm = await supa.from('members').select('id,username').in('id', [mid]).limit(1);
+        if (mm && mm.data && mm.data[0] && mm.data[0].username) who = String(mm.data[0].username);
+      } catch (e) { /* 拿不到就用上面的兜底 */ }
+    }
     rows.push(['#dc2626', '#fef2f2',
       '🚨 ' + fl.length + ' 笔已付款订单代发失败，共 ¥' + money(fen) + ' —— 钱收了货没出',
-      '最新一笔 ' + fl[0].order_id + ' 的报错：' + (first || '（未记录）') +
-      '。对方缺货 / 已取消这类不会自动重试，要么换 SKU 重下，要么给买家退款' +
-      '（后台 → 钱包充值 → 找到该会员 → 调整余额，备注写「订单 ' + fl[0].order_id + ' 退款」）。']);
+      '最新一笔 ' + o0.order_id + ' 的报错：' + (first || '（未记录）') +
+      '。对方缺货 / 已取消这类不会自动重试，要么换个 SKU 重下，要么把钱退给买家 ' + who + '：' +
+      '后台左侧「会员推广」→ 在「用户名 / 邀请码」框里搜 ' + who + ' → 这一行最右边点「发奖励」→ 输入 ' +
+      money(Number(o0.amount) || 0) + '（元），钱会直接进他余额并留下一条流水。' +
+      '搜不到这个人 = 这单不是用余额付的，得走支付宝原路退。']);
   }
   const rc = Number((retrying && retrying.count) || 0);
   if (rc > 0) {
