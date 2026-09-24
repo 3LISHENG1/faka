@@ -136,11 +136,17 @@ function paintViewBtns() {
   if (g) g.classList.toggle('on', viewMode === 'grid');
 }
 
-function catOf(g) { return String(g.category || '').trim() || '未分类'; }
+// 分类名兜底：脏数据里出现过字面量 "undefined"，别让它变成一个假分类
+function catClean(v) {
+  const t = String(v === null || v === undefined ? '' : v).trim();
+  return /^(undefined|null|nan)$/i.test(t) ? '' : t;
+}
+function catName(g) { return catClean(g && g.category); }
+function catOf(g) { return catName(g) || '未分类'; }
 
 function byKeyword() {
   if (!keyword) return catalog;
-  return catalog.filter((g) => `${g.name || ''} ${g.category || ''} ${g.description || ''}`.toLowerCase().includes(keyword));
+  return catalog.filter((g) => `${g.name || ''} ${catName(g)} ${g.description || ''}`.toLowerCase().includes(keyword));
 }
 
 function categoryList(list) {
@@ -167,11 +173,20 @@ function currentList() {
   return { cats, base, list: sortedList(list) };
 }
 
+// 封面只接受「1~8 个字符的真 emoji」。历史上有一批脏数据把字面量 "undefined"
+// 写进了 goods.cover，图标位就会原样渲染出这 9 个字母。
+// 数据库那层已由 23-bad-cover.sql 清洗，这里再兜一道，防旧页面和新脏数据。
+function coverIcon(v, fb) {
+  const t = String(v === null || v === undefined ? '' : v).trim();
+  if (!t || t.length > 8 || /^(undefined|null|nan|\[object .*\])$/i.test(t)) return fb === undefined ? '📦' : fb;
+  return t;
+}
+
 function chip(label, n, key, icon, sub) {
   const b = el('button', 'cat-item' + (catKey === key ? ' on' : ''));
   b.type = 'button';
   b.setAttribute('data-cat', key);
-  b.appendChild(el('span', 'cat-icon', icon || '📦'));
+  b.appendChild(el('span', 'cat-icon', coverIcon(icon, '📦')));
   const box = el('span', 'cat-text');
   box.appendChild(el('b', null, label));
   box.appendChild(el('small', null, sub || (n ? n + ' 个商品' : '点击查看全部')));
@@ -185,7 +200,7 @@ function catIcons(base) {
   const m = new Map();
   for (const g of base) {
     const k = catOf(g);
-    const cover = String(g.cover || '').trim() || '📦';
+    const cover = coverIcon(g.cover, '📦');
     if (!m.has(k)) m.set(k, new Map());
     const c = m.get(k);
     c.set(cover, (c.get(cover) || 0) + 1);
@@ -250,7 +265,7 @@ function renderRow(g, icon) {
   const tr = el('tr');
   const cell = el('td', 'cell-name');
   const inbox = el('div', 'cell-in');
-  inbox.appendChild(el('span', 'row-icon', icon || String(g.cover || '🎁').trim() || '📦'));
+  inbox.appendChild(el('span', 'row-icon', coverIcon(icon, coverIcon(g.cover, '🎁'))));
   const link = el('button', 'row-name', g.name);
   link.type = 'button';
   link.title = '查看商品介绍';
@@ -276,7 +291,7 @@ function renderRow(g, icon) {
 function renderTable(cat, items, icon) {
   const box = el('section', 'pcard');
   const head = el('div', 'pcard-head');
-  head.appendChild(el('span', 'pcard-icon', icon || String((items[0] && items[0].cover) || '📦').trim() || '📦'));
+  head.appendChild(el('span', 'pcard-icon', coverIcon(icon, coverIcon(items[0] && items[0].cover, '📦'))));
   head.appendChild(el('h3', null, cat));
   head.appendChild(el('small', null, items.length + ' 个商品'));
   box.appendChild(head);
@@ -405,8 +420,8 @@ function stockInfo(g) {
 function renderCard(g) {
   const box = el('div', 'goods-card');
 
-  if (g.category) box.appendChild(el('span', 'goods-category', g.category));
-  box.appendChild(el('div', 'goods-cover', g.cover || '🎁'));
+  if (catName(g)) box.appendChild(el('span', 'goods-category', catName(g)));
+  box.appendChild(el('div', 'goods-cover', coverIcon(g.cover, '🎁')));
   const nm = el('div', 'goods-name', g.name);
   nm.title = '查看商品详情';
   nm.style.cursor = 'pointer';
@@ -583,11 +598,11 @@ function renderDetail() {
   home.type = 'button';
   home.addEventListener('click', () => { location.hash = ''; });
   crumb.appendChild(home);
-  if (g && g.category) {
+  if (g && catName(g)) {
     crumb.appendChild(el('span', 'crumb-sep', '›'));
-    const cat = el('button', 'crumb-link', g.category);
+    const cat = el('button', 'crumb-link', catName(g));
     cat.type = 'button';
-    cat.addEventListener('click', () => { catKey = g.category; location.hash = ''; });
+    cat.addEventListener('click', () => { catKey = catName(g); location.hash = ''; });
     crumb.appendChild(cat);
   }
   if (g) { crumb.appendChild(el('span', 'crumb-sep', '›')); crumb.appendChild(el('span', 'crumb-cur', g.name)); }
@@ -608,8 +623,8 @@ function renderDetail() {
 
   // 头图 + 标题
   const hero = el('div', 'dhero');
-  hero.appendChild(el('span', 'dcover', g.cover || '🎁'));
-  if (g.category) hero.appendChild(el('span', 'dbadge', g.category));
+  hero.appendChild(el('span', 'dcover', coverIcon(g.cover, '🎁')));
+  if (catName(g)) hero.appendChild(el('span', 'dbadge', catName(g)));
   const head = el('div', 'dhead');
   head.appendChild(el('h1', null, g.name));
   head.appendChild(el('div', 'dtags', sku ? '货源直发 · 付款后自动发货' : '本店卡密 · 付款后立即发放'));
@@ -726,7 +741,7 @@ function renderSheet(cats) {
     const b = el('button', 'sheet-item' + (catKey === key ? ' on' : ''));
     b.type = 'button';
     b.setAttribute('data-cat', key);
-    b.appendChild(el('span', 'cat-icon', icon || '📦'));
+    b.appendChild(el('span', 'cat-icon', coverIcon(icon, '📦')));
     const t = el('span', 'cat-text');
     t.appendChild(el('b', null, label));
     t.appendChild(el('small', null, sub || String(n)));
@@ -769,7 +784,7 @@ function openBuy(g, presetQty) {
   $('buyEmail').value = localStorage.getItem('FAKA_EMAIL') || '';
   const sum = $('buySummary');
   sum.textContent = '';
-  sum.appendChild(el('div', 'cover', g.cover || '🎁'));
+  sum.appendChild(el('div', 'cover', coverIcon(g.cover, '🎁')));
   const info = el('div');
   info.appendChild(el('div', 'name', g.name));
   info.appendChild(el('div', 'sub', `单价 ¥${money(g.price)} / 张`));

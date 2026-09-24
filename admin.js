@@ -294,7 +294,7 @@ function goodsFilteredList() {
     if (fk === "oos" && !(sku && (q === 0 || g.supplier_online === false))) return false;
     if (fk === "low" && !(sku && q > 0 && q <= 5)) return false;
     if (!kw) return true;
-    return `${g.name || ""} ${g.category || ""} ${sku}`.toLowerCase().includes(kw);
+    return `${g.name || ""} ${catName(g)} ${sku}`.toLowerCase().includes(kw);
   });
 }
 
@@ -321,8 +321,8 @@ function renderGoodsAdmin() {
   for (const g of rows) {
     const sku = String(g.supplier_sku_id || "").trim();
     const tr = el("tr");
-    tr.appendChild(el("td", null, (g.cover || "🎁") + " " + g.name));
-    tr.appendChild(el("td", null, g.category || "-"));
+    tr.appendChild(el("td", null, coverIcon(g.cover, "🎁") + " " + g.name));
+    tr.appendChild(el("td", null, catName(g) || "-"));
     tr.appendChild(el("td", null, "¥" + money(g.price)));
     tr.appendChild(stockCell(g, goodsCardCount[g.id] || 0));
     tr.appendChild(el("td", null, String(g.sales || 0)));
@@ -366,13 +366,27 @@ async function loadGoodsAdmin() {
   renderGoodsAdmin();
   loadGoodsForSelect();
 }
+// 与前台 shop.js 同一个封面兜底（两个文件互不 import，所以各写一份）
+function coverIcon(v, fb) {
+  const t = String(v === null || v === undefined ? '' : v).trim();
+  if (!t || t.length > 8 || /^(undefined|null|nan|\[object .*\])$/i.test(t)) return fb === undefined ? '📦' : fb;
+  return t;
+}
+
+// 与前台 shop.js 同一套分类名兜底：脏值一律当"没有分类"处理
+function catClean(v) {
+  const t = String(v === null || v === undefined ? '' : v).trim();
+  return /^(undefined|null|nan)$/i.test(t) ? '' : t;
+}
+function catName(g) { return catClean(g && g.category); }
+
 function openGoodsModal(g) {
   $('goodsModalTitle').textContent = g ? '编辑商品' : '添加商品';
   $('goodsId').value = g ? String(g.id) : '';
   $('gName').value = g ? g.name : '';
-  $('gCover').value = g ? (g.cover || '') : '🎁';
+  $('gCover').value = g ? coverIcon(g.cover, '') : '🎁';
   $('gPrice').value = g ? money(g.price) : '';
-  $('gCategory').value = g ? (g.category || '') : '';
+  $('gCategory').value = g ? catName(g) : '';
   $('gDesc').value = g ? (g.description || '') : '';
   $('gDetail').value = g ? (g.detail || '') : '';
   $('gSupplier').value = g ? (g.supplier_sku_id || '') : '';
@@ -386,8 +400,8 @@ async function saveGoods() {
   if (!name) { toast('请填写商品名称'); return; }
   if (!price || price <= 0) { toast('请填写正确的价格'); return; }
   const payload = {
-    name, cover: $('gCover').value || '🎁', price: Math.round(price * 100),
-    category: $('gCategory').value.trim(), description: $('gDesc').value.trim(),
+    name, cover: coverIcon($('gCover').value, '🎁'), price: Math.round(price * 100),
+    category: catClean($('gCategory').value), description: $('gDesc').value.trim(),
     detail: $('gDetail').value.trim(),
     supplier_sku_id: $('gSupplier').value.trim(),
   };
@@ -1155,7 +1169,7 @@ function fillPaCats() {
   if (!sel) return;
   const cats = [];
   for (const g of goodsCache || []) {
-    const c = String(g.category || '').trim() || '未分类';
+    const c = catName(g) || '未分类';
     if (cats.indexOf(c) < 0) cats.push(c);
   }
   cats.sort();
@@ -1607,7 +1621,7 @@ function fillLkCats() {
   if (!sel) return;
   const cats = [];
   for (const g of goodsCache || []) {
-    const c = String(g.category || '').trim() || '未分类';
+    const c = catName(g) || '未分类';
     if (cats.indexOf(c) < 0) cats.push(c);
   }
   cats.sort();
