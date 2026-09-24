@@ -613,14 +613,15 @@ async function fnCall(body) {
   if (!res.ok && !json) throw new Error('HTTP ' + res.status + '：' + text.slice(0, 160));
   return json;
 }
-// 库存同步：服务端一次只翻一页，这里循环点到 done，实时报进度
+// 库存同步：服务端一次连翻多页（最多 60 页 / 20 秒就主动收手），这里循环到 done。
+// 一批可能要十几秒才返回，所以文案必须说清楚，不然站长以为卡死了又点一次。
 async function syncStock() {
   const b = document.querySelector('[data-action="sync-stock"]');
   const stat = $('supSyncStat');
   if (b) b.disabled = true;
   try {
     for (let i = 1; i <= 200; i++) {
-      if (stat) stat.textContent = '同步中… 第 ' + i + ' 页';
+      if (stat) stat.textContent = '同步中… 第 ' + i + ' 批（一批最多连翻几十页，慢的话要等十几秒，别重复点）';
       const data = await fnCall({ action: 'sync' });
       if (!data || data.ok !== true) throw new Error((data && data.error_message) || '返回异常');
       if (!data.sync) throw new Error("函数没返回同步结果：多半是 Edge Function 还是旧版，按 README 第 5 步重新粘贴部署");
