@@ -61,8 +61,11 @@ function supplierInfo(o) {
       ? { t: '⏳ 未排队', c: 'tag-orange', tip: '商品配了对方 SKU，但这单还没进代发队列（多半是刚付款或代发开关是关的）' }
       : { t: '不代发', c: 'tag-gray', tip: '本店自己上传卡密的商品，本来就不走代发' };
   }
-  if (st === 'pending') return { t: '⏳ 排队待发', c: 'tag-orange', tip: '等定时任务（每分钟一次）把它发给货源方' };
-  if (st === 'submitted') return { t: '⏳ 对方出货中', c: 'tag-orange', tip: '已自动向货源方下单' + (ref ? '，对方单号 ' + ref : '') + '，等它回传卡密' };
+  // 超时/断网这类可恢复错误不再标 failed，而是留在 pending/submitted 下一分钟自动重试。
+  // 踩过的坑：状态留在队列里但报错不清空，后台只显示「排队待发」，看不出它其实卡过。
+  const retryTip = err ? '（上次报错：' + err.slice(0, 140) + '，会自动重试）' : '';
+  if (st === 'pending') return { t: err ? '⏳ 重试中' : '⏳ 排队待发', c: 'tag-orange', tip: '等定时任务（每分钟一次）把它发给货源方' + retryTip };
+  if (st === 'submitted') return { t: err ? '⏳ 重试中' : '⏳ 对方出货中', c: 'tag-orange', tip: '已自动向货源方下单' + (ref ? '，对方单号 ' + ref : '') + '，等它回传卡密' + retryTip };
   if (st === 'done') return { t: '✅ 已发货', c: 'tag-green', tip: '货源方已出卡密' + (ref ? '，对方单号 ' + ref : '') };
   if (st === 'failed') return { t: '❌ 代发失败', c: 'tag-red', tip: err ? '失败原因：' + err : '失败原因未记录' };
   return { t: st, c: 'tag-gray', tip: err || '' };
