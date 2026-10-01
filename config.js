@@ -17,7 +17,15 @@ if (window.top !== window.self) {
 // 这里只放「可公开」的 publishable key。
 // ⚠️ 绝不要把 service_role / secret key 写进本文件——它会随 Pages 公开，
 //    拿到它等于绕过 RLS 拥有全库读写。
+// ⚠️ 上线顺序：必须先按 README 第 39 步把反代 Worker 部署好、并且
+//    curl https://api.aiigk.vip/healthz 能通，才能把下面 SUPA_URL 换成反代域名。
+//    换早了 = 全站接口立刻 404。CSP 已经同时放行两个地址，所以换回来不用动别的文件。
+//
+// 直连（默认，Worker 没上线前用这个）：
+//   SUPA_URL: 'https://tbrndvwxwvtvyjpsqnuj.supabase.co',
+// 走自己的域名（第 39 步部署完再启用）：
+//   SUPA_URL: 'https://api.aiigk.vip',
 window.FAKA_CONFIG = {
-  SUPA_URL: 'https://tbrndvwxwvtvyjpsqnuj.supabase.co',
+  SUPA_URL: 'https://api.aiigk.vip',
   SUPA_KEY: 'sb_publishable_KKpYWmXKbGED-gL85Q4Rpw_RMzcXipK',
 };
