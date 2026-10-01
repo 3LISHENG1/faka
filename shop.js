@@ -18,6 +18,75 @@ const supa = window.supabase.createClient(CFG.SUPA_URL, CFG.SUPA_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
+/* ---------- 网络韧性：硬超时 + 只读接口退避重试 ----------
+   本站全链路在境外（GitHub Pages + Supabase），国内过来是「抽风型」失败：
+   同一个请求可能 0.9s 回来，也可能 12s 还没结果。而 SDK 自带的重试只覆盖
+   GET/HEAD、只认 503/520（postgrest 里的 ['GET','HEAD','OPTIONS'] 与 [520,503]），
+   RPC 一律走 POST —— 等于一次都不重试，失败前也没有超时，弱网下页面会永远转圈。
+   只有只读接口允许自动重试：下单/支付重试 = 可能重复扣款、重复出货。 */
+const RPC_READ = new Set(['rpc_site_config', 'rpc_catalog', 'rpc_order_lookup']);
+// 想调快/调慢就在 config.js 里加 SUPA_TIMEOUT_MS / SUPA_ATTEMPTS，不加就用默认。
+const RPC_TIMEOUT_MS = Number(CFG.SUPA_TIMEOUT_MS) > 0 ? Number(CFG.SUPA_TIMEOUT_MS) : 12000;
+const RPC_ATTEMPTS = Number(CFG.SUPA_ATTEMPTS) > 0 ? Number(CFG.SUPA_ATTEMPTS) : 3;
+
+const TIMEOUT_RE = /AbortError|TimeoutError|ABORT_ERR|timed out|timeout|请求超时|超时/i;
+const CSP_RE = /Content Security Policy|Refused to fetch|connect-src/i;
+// iOS WKWebView / 微信 XWeb 的断网文案各家不一样，不含 'Failed to fetch'，
+// 所以必须按关键字族匹配，不能只认 Chromium 那两种写法。
+const NET_RE = /NetworkError|Failed to fetch|fetch failed|Load failed|Network request failed|net::|ERR_[A-Z_]+|could not be found|cannot find host|offline|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|无法连接|失去互联网|网络连接|网络异常|网络错误|断网/i;
+
+function errNameMsg(err) {
+  return String((err && ((err.name || '') + ' ' + (err.message || ''))) || err || '');
+}
+const isTimeout = (err) => TIMEOUT_RE.test(errNameMsg(err));
+const isNetwork = (err) => !CSP_RE.test(errNameMsg(err)) && NET_RE.test(errNameMsg(err));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const toError = (e) => (e instanceof Error ? e : new Error(String((e && (e.message || e)) || 'NetworkError')));
+
+/* 单次 RPC + 硬超时。
+   超时靠 Promise.race 自己兜住，不依赖底层 fetch 是否响应 signal ——
+   abortSignal 只是顺带把连接掐掉，真正保证「绝不无限转圈」的是这个 race。
+   SDK 跨版本在「返回 error 对象」和「直接抛异常」之间行为不一致，两条路都兜。 */
+const RACE_TIMEOUT = {};
+async function rpcOnce(name, args, timeoutMs) {
+  const builder = supa.rpc(name, args || {});
+  let ac = null;
+  if (typeof AbortController === 'function' && typeof builder.abortSignal === 'function') {
+    ac = new AbortController();
+    builder.abortSignal(ac.signal);
+  }
+  let timer = null;
+  const guard = new Promise((resolve) => { timer = setTimeout(() => resolve(RACE_TIMEOUT), timeoutMs || RPC_TIMEOUT_MS); });
+  // 迟到的 reject 就地吃掉，否则会变成 unhandledrejection
+  const settled = Promise.resolve(builder).then((v) => ({ ok: true, v }), (e) => ({ ok: false, e }));
+  const race = await Promise.race([settled, guard]);
+  clearTimeout(timer);
+  if (race === RACE_TIMEOUT) {
+    if (ac) { try { ac.abort(); } catch (e) { /* 老内核忽略 */ } }
+    const err = new Error('请求超时');
+    err.name = 'TimeoutError';
+    return { data: null, error: err };
+  }
+  if (!race.ok) return { data: null, error: toError(race.e) };
+  return race.v || { data: null, error: new Error('EmptyResponse') };
+}
+
+async function rpc(name, args) {
+  const readonly = RPC_READ.has(name);
+  const attempts = readonly ? RPC_ATTEMPTS : 1;
+  let out = null;
+  for (let i = 0; i < attempts; i++) {
+    out = await rpcOnce(name, args);
+    const transient = out && out.error && (isTimeout(out.error) || isNetwork(out.error));
+    if (!transient || i === attempts - 1) break;
+    await sleep(350 * Math.pow(2, i) + Math.floor(Math.random() * 250));   // 指数退避 + 抖动
+  }
+  if (out && out.error && !readonly) {
+    try { out.error.mutating = true; } catch (e) { /* 冻结对象就算了 */ }
+  }
+  return out || { data: null, error: new Error('NetworkError') };
+}
+
 // 数据库抛出的错误码 → 买家可见文案。
 // 刻意不回显原始报错：旧版 toast(e.message) 会把表名/列名/策略名泄漏给攻击者。
 const ERR_TEXT = {
@@ -40,7 +109,16 @@ const ERR_TEXT = {
 function errText(err) {
   const m = String((err && err.message) || err || '');
   for (const k in ERR_TEXT) if (m.includes(k)) return ERR_TEXT[k];
-  if (m.includes('NetworkError') || m.includes('Failed to fetch')) return '网络异常，请重试';
+  // 下面三类都是链路问题，不是买家操作问题，必须和兜底文案分开：
+  // 否则买家以为站长关了店，站长还会顺着「操作失败」去查数据库。
+  if (CSP_RE.test(errNameMsg(err))) return '浏览器拦截了请求，请改用系统浏览器打开';
+  if (isTimeout(err)) {
+    // 写接口超时最容易出事：请求可能已经落库，不能让人盲目再点一次。
+    return err && err.mutating
+      ? '网络超时，订单可能已提交，请先用「订单查询」确认再重试'
+      : '网络超时，请重试';
+  }
+  if (isNetwork(err)) return '网络异常，请重试';
   return '操作失败，请稍后重试';
 }
 const money = (fen) => ((Number(fen) || 0) / 100).toFixed(2);
@@ -81,29 +159,56 @@ let currentCards = [];
 
 /* ---------- 加载 ---------- */
 async function loadSite() {
-  const { data, error } = await supa.rpc('rpc_site_config');
-  if (error) { console.error(error); return; }
+  const { data, error } = await rpc('rpc_site_config');
+  if (error) {
+    // 原来这里只 console.error 就 return，公告会永远停在「正在加载...」——
+    // 那正是弱网最显眼的症状，必须留下人能看懂的兜底文案。
+    console.error(error);
+    const box = $('announcement');
+    if (box) box.textContent = '站点信息加载失败，请检查网络后重试';
+    return false;
+  }
   $('siteName').textContent = data.siteName || '发卡商城';
   try { localStorage.setItem('FAKA_SITE_NAME', $('siteName').textContent); } catch (e) { /* 无痕模式忽略 */ }
   $('announcement').textContent = data.announcement || '欢迎光临本店！';
   document.title = (data.siteName || '发卡商城') + ' - 自动发卡，秒到账';
   if (window.FakaI18n) window.FakaI18n.fixTitle();
+  return true;
 }
 
 async function loadCatalog() {
   const grid = $('goodsGrid');
   grid.textContent = '';
   grid.appendChild(el('div', 'empty', '正在加载商品...'));
-  const { data, error } = await supa.rpc('rpc_catalog');
+  const { data, error } = await rpc('rpc_catalog');
   if (error) {
-    grid.textContent = '';
-    grid.appendChild(el('div', 'empty', errText(error)));
     console.error(error);
+    renderLoadFailure(grid, errText(error));
     return;
   }
   catalog = Array.isArray(data) ? data : [];
   shown = PAGE_SIZE;
   route();
+}
+
+/* 加载失败不能只甩一行字：给个「重试」按钮，一次把站点信息和商品都重拉。
+   成功时 loadCatalog 会重画整个 grid，按钮自然消失；失败则换一个新按钮。 */
+function renderLoadFailure(box, msg) {
+  box.textContent = '';
+  box.appendChild(el('div', 'empty', msg));
+  const btn = el('button', 'btn btn-ghost btn-sm', '重试');
+  btn.type = 'button';
+  btn.style.marginTop = '14px';
+  btn.addEventListener('click', () => {
+    btn.disabled = true;
+    btn.textContent = '重试中...';
+    reloadAll();
+  });
+  box.appendChild(btn);
+}
+
+async function reloadAll() {
+  await Promise.all([loadSite(), loadCatalog()]);
 }
 
 /* ---------- 分类 / 搜索 / 排序 / 分页 ----------
@@ -824,7 +929,7 @@ async function submitOrder() {
   btn.disabled = true;
   btn.textContent = '下单中...';
   try {
-    const { data, error } = await supa.rpc('rpc_create_order', {
+    const { data, error } = await rpc('rpc_create_order', {
       p_goods_id: current.id, p_qty: qty, p_email: email, p_code: getRef(),
     });
     if (error) { toast(errText(error)); console.error(error); return; }
@@ -885,7 +990,7 @@ async function balancePay() {
   const b = $('balancePayBtn');
   if (b) { b.disabled = true; b.textContent = '支付中...'; }
   try {
-    const { data, error } = await supa.rpc('rpc_pay_order_by_balance', {
+    const { data, error } = await rpc('rpc_pay_order_by_balance', {
       p_token: tk, p_order_id: order.order_id, p_email: order.email,
     });
     if (error) { toast(errText(error)); return; }
@@ -915,7 +1020,7 @@ function openPayModal() {
 
 async function refreshPayStatus(silent) {
   if (!order) return;
-  const { data, error } = await supa.rpc('rpc_order_lookup', {
+  const { data, error } = await rpc('rpc_order_lookup', {
     p_order_id: order.order_id, p_email: order.email,
   });
   if (error) { if (!silent) toast(errText(error)); return; }
@@ -983,7 +1088,7 @@ function stopCardPolling() {
 /* 货源方出货要时间：结果弹窗自己盯 3 分钟，卡密一到就地刷出来 */
 async function fetchCards(quiet) {
   if (!resultCtx || !resultCtx.email) return;
-  const { data, error } = await supa.rpc('rpc_order_lookup', {
+  const { data, error } = await rpc('rpc_order_lookup', {
     p_order_id: resultCtx.order_id, p_email: resultCtx.email,
   });
   if (error) { if (!quiet) toast(errText(error)); return; }
@@ -1070,7 +1175,7 @@ async function doQuery() {
   if (!orderId || !email) { toast('请填写订单编号和下单邮箱'); return; }
   box.textContent = '';
   box.appendChild(el('div', 'empty', '查询中...'));
-  const { data, error } = await supa.rpc('rpc_order_lookup', { p_order_id: orderId, p_email: email });
+  const { data, error } = await rpc('rpc_order_lookup', { p_order_id: orderId, p_email: email });
   box.textContent = '';
   if (error) { box.appendChild(el('div', 'hint-line', errText(error))); return; }
   if (!data || data.found === false) {
@@ -1223,6 +1328,5 @@ document.addEventListener('DOMContentLoaded', async () => {
   loadViewMode();
   bind();
   paintViewBtns();
-  await loadSite();
-  loadCatalog();
+  reloadAll();   // 并行发：串行等于在抽风链路上多等一个来回
 });

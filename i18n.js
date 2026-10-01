@@ -180,6 +180,15 @@
     "未找到订单": "Order not found",
     "网络异常，请重试": "Network problem - please retry",
     "操作失败，请稍后重试": "Something went wrong - please retry",
+    "网络超时，请重试": "Network timed out - please retry",
+    "网络超时，订单可能已提交，请先用「订单查询」确认再重试":
+      "The network timed out - this order may already be in. Check Order lookup before trying again.",
+    "浏览器拦截了请求，请改用系统浏览器打开":
+      "Your browser blocked the request - please open this site in a normal browser",
+    "站点信息加载失败，请检查网络后重试":
+      "Couldn't load the store info - check your connection and retry",
+    "重试": "Retry",
+    "重试中...": "Retrying...",
     "请先编辑站点根目录下的 config.js，填写 Supabase 接口地址":
       "Please edit config.js in the site root and fill in your Supabase URL / key",
 

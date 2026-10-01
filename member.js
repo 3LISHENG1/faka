@@ -55,10 +55,33 @@
     });
     return supa;
   }
+  // 会员侧大多是写操作（注册 / 改密 / 充值），一律不自动重试；
+  // 但必须有超时：否则弱网下点「登录」会一直转，既不报错也不放行。
+  // 超时同样靠 race 自己兜，不依赖底层 fetch 是否响应 signal。
+  const RPC_TIMEOUT_MS = Number(CFG.SUPA_TIMEOUT_MS) > 0 ? Number(CFG.SUPA_TIMEOUT_MS) : 15000;
+  const RACE_TIMEOUT = {};
   async function rpc(name, args) {
     const c = client();
     if (!c) throw new Error('NO_CLIENT');
-    const r = await c.rpc(name, args || {});
+    const builder = c.rpc(name, args || {});
+    let ac = null;
+    if (typeof AbortController === 'function' && typeof builder.abortSignal === 'function') {
+      ac = new AbortController();
+      builder.abortSignal(ac.signal);
+    }
+    let timer = null;
+    const guard = new Promise((resolve) => { timer = setTimeout(() => resolve(RACE_TIMEOUT), RPC_TIMEOUT_MS); });
+    const settled = Promise.resolve(builder).then((v) => ({ ok: true, v }), (e) => ({ ok: false, e }));
+    const race = await Promise.race([settled, guard]);
+    clearTimeout(timer);
+    if (race === RACE_TIMEOUT) {
+      if (ac) { try { ac.abort(); } catch (e) { /* 老内核忽略 */ } }
+      const err = new Error('请求超时');
+      err.name = 'TimeoutError';
+      throw err;
+    }
+    if (!race.ok) throw new Error(String((race.e && (race.e.message || race.e)) || 'NetworkError'));
+    const r = race.v || {};
     if (r.error) throw new Error(String(r.error.message || r.error));
     return r.data;
   }
