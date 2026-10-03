@@ -66,7 +66,14 @@ function supplierInfo(o) {
   const retryTip = err ? '（上次报错：' + err.slice(0, 140) + '，会自动重试）' : '';
   if (st === 'pending') return { t: err ? '⏳ 重试中' : '⏳ 排队待发', c: 'tag-orange', tip: '等定时任务（每分钟一次）把它发给货源方' + retryTip };
   if (st === 'submitted') return { t: err ? '⏳ 重试中' : '⏳ 对方出货中', c: 'tag-orange', tip: '已自动向货源方下单' + (ref ? '，对方单号 ' + ref : '') + '，等它回传卡密' + retryTip };
-  if (st === 'done') return { t: '✅ 已发货', c: 'tag-green', tip: '货源方已出卡密' + (ref ? '，对方单号 ' + ref : '') };
+  if (st === 'done') {
+    // 人工结案的单也落在 done 上，必须标出来，否则以后完全看不出这单其实没走过货源
+    if (err.indexOf('人工结案') === 0) {
+      return { t: '✅ 已发货（人工）', c: 'tag-green',
+        tip: err + '　—— 这不是货源方发的，是后台手动结案的，卡密没通过系统发出' };
+    }
+    return { t: '✅ 已发货', c: 'tag-green', tip: '货源方已出卡密' + (ref ? '，对方单号 ' + ref : '') };
+  }
   if (st === 'failed') return { t: '❌ 代发失败', c: 'tag-red', tip: err ? '失败原因：' + err : '失败原因未记录' };
   return { t: st, c: 'tag-gray', tip: err || '' };
 }
@@ -76,7 +83,30 @@ function supplierCell(o) {
   const sp = el('span', 'tag ' + i.c, i.t);
   if (i.tip) sp.title = i.tip;
   td.appendChild(sp);
+  if (String((o && o.supplier_status) || '').trim() === 'failed') {
+    td.appendChild(document.createTextNode(' '));
+    td.appendChild(btn('btn btn-ghost btn-sm', '人工结案', () => manualDone(o)));
+  }
   return td;
+}
+
+/* 人工结案：把「已付款 + 代发失败」的单标成已发货。
+   踩过的坑：给买家发了奖励退钱，仪表盘那条「钱收了货没出」还是不走 ——
+   因为横幅只看订单状态，而退钱是另一张表的流水，两者没有任何关联。
+   没有这个按钮，站长就永远没法把处理完的失败单结案，告警变成常驻等于没有。 */
+async function manualDone(o) {
+  const why = prompt('这笔单代发失败，现在按「已发货」人工结案。\n'
+    + '原因必填（会永久留档，后台和前台都能看到）：\n'
+    + '例如：已线下把卡密发给买家 / 已全额退款给买家', '');
+  if (why === null) return;
+  if (why.trim().length < 4) { toast('原因至少要写 4 个字'); return; }
+  if (!confirm('确认把订单 ' + o.order_id + ' 标成已发货？\n'
+    + '标完仪表盘那条红色「钱收了货没出」告警就会消失。')) return;
+  const { data, error } = await supa.rpc('rpc_order_manual_done',
+    { p_order_id: o.order_id, p_reason: why.trim() });
+  if (error) { toast(errText(error)); return; }
+  if (data && data.ok) { toast('已结案：' + o.order_id); loadOrders(); loadDash(); }
+  else toast('没改成：' + ((data && data.error) || '未知原因'));
 }
 
 /* ---------- 视图切换 ---------- */
