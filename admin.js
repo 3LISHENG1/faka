@@ -83,7 +83,10 @@ function supplierCell(o) {
   const sp = el('span', 'tag ' + i.c, i.t);
   if (i.tip) sp.title = i.tip;
   td.appendChild(sp);
-  if (String((o && o.supplier_status) || '').trim() === 'failed') {
+  // 已关闭的单没收到钱，本来就不属于「钱收了货没出」，数据库那边也会拒（NOT_FAILED）。
+  // 所以按钮干脆不要出现在那种行上，别给站长留一个点了只会报错的死胡同。
+  if (String((o && o.supplier_status) || '').trim() === 'failed'
+      && String((o && o.status) || '').trim() === 'paid') {
     td.appendChild(document.createTextNode(' '));
     td.appendChild(btn('btn btn-ghost btn-sm', '人工结案', () => manualDone(o)));
   }
@@ -106,6 +109,8 @@ async function manualDone(o) {
     { p_order_id: o.order_id, p_reason: why.trim() });
   if (error) { toast(errText(error)); return; }
   if (data && data.ok) { toast('已结案：' + o.order_id); loadOrders(); loadDash(); }
+  else if (data && data.error === 'NOT_FAILED')
+    toast('没改成：这笔不是「已支付 + 代发失败」，本来就不算钱收了货没出，不用结案');
   else toast('没改成：' + ((data && data.error) || '未知原因'));
 }
 
