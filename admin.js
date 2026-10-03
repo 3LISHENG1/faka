@@ -608,7 +608,9 @@ async function saveSupplier() {
 // X-Client-Info 请求头，若 Edge Function 的 CORS 白名单里没有它，
 // 浏览器在预检阶段就把请求掐掉，表现为一律报
 // "Failed to send a request to the Edge Function"。
-// 这里只发 content-type + authorization 两个头，预检必然通过。
+// 这里只发 content-type + apikey + authorization 三个头，预检必然通过
+// （反代 Worker 的 CORS 允许列表里这三个都在）。apikey 不能省：Worker 有
+// REQUIRE_APIKEY 门槛，裸 fetch 不带它就 401。2026-10-03 踩过。
 async function fnCall(body) {
   const { data } = await supa.auth.getSession();
   const jwt = data && data.session && data.session.access_token;
@@ -617,7 +619,7 @@ async function fnCall(body) {
     CFG.SUPA_URL.replace(/\/+$/, '') + '/functions/v1/supplier-fulfill',
     {
       method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + jwt },
+      headers: { 'content-type': 'application/json', apikey: CFG.SUPA_KEY, authorization: 'Bearer ' + jwt },
       body: JSON.stringify(body),
     },
   );
@@ -1456,7 +1458,8 @@ const WAL_CHAN_TEXT = { manual: '人工', alipay: '支付宝·网页', alipay_qr
 async function payCall(body) {
   const res = await fetch(
     CFG.SUPA_URL.replace(/\/+$/, '') + '/functions/v1/alipay-pay',
-    { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) },
+    // apikey 同 fnCall：Worker 的 REQUIRE_APIKEY 门槛，裸 fetch 必须自己带
+    { method: 'POST', headers: { 'content-type': 'application/json', apikey: CFG.SUPA_KEY }, body: JSON.stringify(body) },
   );
   const txt = await res.text();
   try { return JSON.parse(txt); } catch { throw new Error('HTTP ' + res.status + '：' + txt.slice(0, 160)); }

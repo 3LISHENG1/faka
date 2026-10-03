@@ -296,7 +296,11 @@
     return true;
   }
   async function payFn(payload) {
-    const opt = { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) };
+    /* 必须带 apikey。反代 Worker 有一道 REQUIRE_APIKEY 门槛，用来挡住别人把这个 Worker
+       当免费的 Supabase 代理刷。supabase-js 会自动带这个头，裸 fetch() 不会 ——
+       少了它 Worker 直接回 401，表现就是「支付宝下单失败：HTTP_401」、二维码永远出不来。
+       Worker 的 CORS 允许列表里本来就有 apikey，所以预检照样通过。2026-10-03 踩过，别删。 */
+    const opt = { method: 'POST', headers: { 'content-type': 'application/json', apikey: CFG.SUPA_KEY }, body: JSON.stringify(payload) };
     // 支付宝网关最坏要等 2 x 12 秒，再叠上函数冷启动；浏览器侧再兜一个 35 秒上限，
     // 绝不让「生成充值单」按钮无限灰着而不给任何解释。
     try {
